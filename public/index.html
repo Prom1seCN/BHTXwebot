@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0080FF">
+<title>百花同行 · 不再一个人出发</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="百花同行">
+<meta name="format-detection" content="telephone=no">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="app" v-cloak>
+
+  <!-- ===== 顶栏 ===== -->
+  <header class="topbar">
+    <div class="brand" @click="go('hall')">
+      <img class="brand-mark" src="/logo.png" alt="百花同行">
+      <span class="brand-text">
+        <img class="brand-wordmark" src="/wordmark.png" alt="百花同行">
+        <span class="brand-slogan">不再一个人出发</span>
+      </span>
+    </div>
+    <div class="topbar-right">
+      <span v-if="isLoggedIn" class="uid" @click="go('menu')">{{ displayName }}</span>
+      <button v-else class="btn-primary btn-sm" @click="openLogin">登录</button>
+    </div>
+  </header>
+
+  <!-- ===== 图标精灵 ===== -->
+  <svg class="sprite" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="i-users" viewBox="0 0 24 24">
+      <circle cx="9" cy="8.4" r="3.3"/>
+      <path d="M3.3 19.4c0-3.2 2.5-5.5 5.7-5.5s5.7 2.3 5.7 5.5"/>
+      <path d="M16.3 6.2a3.3 3.3 0 0 1 0 5.7"/>
+      <path d="M17.7 14c1.9.7 3 2.4 3 4.5"/>
+    </symbol>
+    <symbol id="i-cal" viewBox="0 0 24 24">
+      <rect x="3.4" y="5" width="17.2" height="15.6" rx="3.4"/>
+      <path d="M3.4 10h17.2M8.4 3.4v3.2M15.6 3.4v3.2"/>
+    </symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M6.5 9.5l5.5 5.5 5.5-5.5"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5.4L8 12l7 6.6"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.6l4.6 4.6L19 7.4"/></symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24">
+      <path d="M14.8 4.6h2.6a1.8 1.8 0 0 1 1.8 1.8v11.2a1.8 1.8 0 0 1-1.8 1.8h-2.6"/>
+      <path d="M10.4 8.4L6.8 12l3.6 3.6M6.8 12H15"/>
+    </symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="8.4"/><path d="M12 7.4V12l3.2 2"/>
+    </symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24">
+      <path d="M12 3.4l7 2.6v5.4c0 4.2-2.9 7.6-7 8.8-4.1-1.2-7-4.6-7-8.8V6z"/>
+      <path d="M9 12.2l2.2 2.2 4-4.4"/>
+    </symbol>
+    <symbol id="i-file" viewBox="0 0 24 24">
+      <path d="M14 3.4H7.4A1.8 1.8 0 0 0 5.6 5.2v13.4a1.8 1.8 0 0 0 1.8 1.8h9.2a1.8 1.8 0 0 0 1.8-1.8V7.6z"/>
+      <path d="M14 3.4v4.2h4.2M9.4 13h5.2M9.4 16.6h5.2"/>
+    </symbol>
+    <symbol id="i-publish" viewBox="0 0 24 24">
+      <rect x="3.4" y="3.4" width="17.2" height="17.2" rx="5.6"/>
+      <path d="M12 8.4v7.2M8.4 12h7.2"/>
+    </symbol>
+    <symbol id="i-book" viewBox="0 0 24 24">
+      <path d="M4 5.4c0-.8.6-1.4 1.4-1.4H10a2 2 0 0 1 2 2v13a2 2 0 0 0-2-2H5.4c-.8 0-1.4-.6-1.4-1.4z"/>
+      <path d="M20 5.4c0-.8-.6-1.4-1.4-1.4H14a2 2 0 0 0-2 2v13a2 2 0 0 1 2-2h4.6c.8 0 1.4-.6 1.4-1.4z"/>
+    </symbol>
+    <symbol id="i-info" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="8.4"/>
+      <path d="M12 11.2v5.2M12 7.9v.2"/>
+    </symbol>
+  </svg>
+
+  <div class="shell">
+    <!-- ===== 侧栏（仅桌面端）===== -->
+    <aside class="rail">
+      <div class="rail-brand" @click="go('hall')">
+        <img class="rail-logo" src="/logo.png" alt="">
+        <span class="brand-text">
+          <img class="brand-wordmark" src="/wordmark.png" alt="百花同行">
+          <span class="brand-slogan">不再一个人出发</span>
+        </span>
+      </div>
+
+      <nav class="rail-nav">
+        <button v-for="m in menuList" :key="m.key"
+                class="rail-item" :class="{on: view===m.key}" @click="handleMenu(m.key)">
+          <svg class="ri" viewBox="0 0 24 24"><use :href="'#' + iconOf(m.key)"/></svg>
+          <span class="rail-label">{{ m.label }}</span>
+          <span v-if="m.note" class="rail-note">{{ m.note }}</span>
+        </button>
+      </nav>
+
+      <button class="btn-primary rail-publish" @click="goPublish">发布行程</button>
+
+      <div v-if="isLoggedIn" class="rail-foot">
+        <div class="id-card">
+          <span class="id-avatar">{{ idInitial }}</span>
+          <span class="id-name">{{ displayName }}</span>
+          <button class="id-edit" @click="openRename">修改ID</button>
+          <button class="id-edit" @click="openContactEdit">修改联系方式</button>
+        </div>
+      </div>
+    </aside>
+
+    <div class="stage">
+
+  <!-- ===== 同行大厅（默认首页）===== -->
+  <main v-if="view==='hall'" class="page">
+    <div class="filterbar">
+      <div class="chips chips-track">
+        <button v-for="d in dateFilters" :key="d.k"
+                class="chip" :class="{on: dateFilter===d.k}"
+                @click="setDateFilter(d.k)">{{ d.label }}</button>
+        <button class="chip chip-picker" :class="{on: isPickedDate}" @click="openPicker('date')">
+          <span>{{ dateChipLabel }}</span>
+          <svg class="chip-ico" viewBox="0 0 24 24"><use href="#i-cal"/></svg>
+        </button>
+      </div>
+      <div class="chips chips-track">
+        <button class="chip" :class="{on: fromFilter===''}" @click="fromFilter=''">全部</button>
+        <button v-for="loc in quickFrom" :key="'q'+loc"
+                class="chip" :class="{on: fromFilter===loc}"
+                @click="fromFilter = fromFilter===loc ? '' : loc">{{ loc }}</button>
+        <button class="chip chip-picker" :class="{on: isOtherFrom}" @click="openPicker('from')">
+          <span>{{ isOtherFrom ? fromFilter : '选择出发地' }}</span>
+          <svg class="chip-ico" viewBox="0 0 24 24"><use href="#i-chevron"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div v-if="loading" class="list" aria-busy="true">
+      <div v-for="n in 3" :key="n" class="card sk">
+        <div class="sk-line w35"></div>
+        <div class="sk-line w65" style="height:15px"></div>
+        <div class="sk-line w50" style="height:15px"></div>
+      </div>
+    </div>
+
+    <template v-else>
+      <div v-if="visibleTrips.length" class="list">
+        <article v-for="(t, i) in visibleTrips" :key="t.id" class="card" :style="{'--i': i}" @click="openTrip(t.id)">
+          <div class="card-head">
+            <span class="card-when">{{ t.displayDate }} {{ t.time }} 出发</span>
+            <span class="card-tag" :class="tagClass(t)">{{ tagOf(t) }}</span>
+          </div>
+          <div class="route">
+            <div class="rp"><span class="node start"></span><span class="loc">{{ t.from }}</span></div>
+            <div class="rp"><span class="node end"></span><span class="loc">{{ t.to }}</span></div>
+          </div>
+          <div class="card-foot">
+            <span class="seats">
+              <span class="pips">
+                <i v-for="n in ((t.capacity || 4) - 1)" :key="n" :class="{on: n <= (t.headcount || 0) + 1}"></i>
+              </span>
+              {{ (t.headcount || 0) + 1 }}/{{ (t.capacity || 4) - 1 }} 人
+            </span>
+            <span class="more">查看 ›</span>
+          </div>
+          <div v-if="t.remark" class="card-remark">{{ t.remark }}</div>
+        </article>
+      </div>
+
+      <div v-else class="empty">
+        <svg class="empty-art" viewBox="0 0 72 48" fill="none" aria-hidden="true">
+          <path d="M15 35C15 21 31 13 39 13h9" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-dasharray="5 6"/>
+          <circle cx="14" cy="37" r="6" fill="currentColor" opacity=".85"/>
+          <circle cx="50" cy="13" r="6" stroke="currentColor" stroke-width="2"/>
+        </svg>
+        <div class="empty-title">{{ emptyTitle }}</div>
+        <button class="btn-primary" @click="go('publish')">发布行程</button>
+      </div>
+    </template>
+  </main>
+
+  <!-- ===== 行程详情 ===== -->
+  <main v-if="view==='detail'" class="page">
+    <div class="page-head">
+      <button class="back" aria-label="返回" @click="go('hall')">
+        <svg class="back-ico" viewBox="0 0 24 24"><use href="#i-back"/></svg>
+      </button>
+    </div>
+
+    <div v-if="!trip" class="loading"><span class="spin"></span>加载中</div>
+    <template v-else>
+      <section class="panel">
+        <div class="badge" :class="trip.status">{{ statusText }}</div>
+        <div class="route-big">
+          <span class="loc">{{ trip.from }}</span>
+          <span class="arrow">→</span>
+          <span class="loc">{{ trip.to }}</span>
+        </div>
+        <div class="kv"><span>出发日期</span><b>{{ trip.date }}</b></div>
+        <div class="kv"><span>出发时间</span><b>{{ trip.time }}</b></div>
+        <div class="kv"><span>已有同行</span><b>{{ (trip.headcount || 0) + 1 }} / {{ (trip.capacity || 4) - 1 }} 人</b></div>
+        <div v-if="trip.remark" class="kv"><span>备注</span><b>{{ trip.remark }}</b></div>
+      </section>
+
+      <section class="panel">
+        <h3 class="panel-title">同行成员</h3>
+        <div v-if="membersLoading" class="state-sm">加载中…</div>
+        <ul v-else class="members">
+          <li v-for="(m, i) in members" :key="i" class="member">
+            <div class="avatar">{{ (m.displayName || '北')[0] }}</div>
+            <div class="member-main">
+              <div class="member-name">
+                {{ m.displayName }}
+                <span class="role">{{ m.isOrganizer ? '发起人' : '同行者' }}</span>
+              </div>
+              <div v-if="m.contact" class="member-contact" @click="copy(m.contact, tripId)">
+                {{ m.contact }} <span class="copy">复制</span>
+              </div>
+              <div v-else class="member-contact muted">加入后可见</div>
+            </div>
+          </li>
+        </ul>
+      </section>
+
+      <div class="actions">
+        <button v-if="isMember" class="btn-danger" @click="leaveTrip">退出行程</button>
+        <button v-else-if="trip.isFull" class="btn-disabled" disabled>已满员</button>
+        <button v-else class="btn-primary" @click="joinTrip">加入行程</button>
+      </div>
+    </template>
+  </main>
+
+  <!-- ===== 发布行程 ===== -->
+  <main v-if="view==='publish'" class="page">
+    <div class="page-head">
+      <button class="back" aria-label="返回" @click="go('hall')">
+        <svg class="back-ico" viewBox="0 0 24 24"><use href="#i-back"/></svg>
+      </button>
+      <h2 class="page-title">发布行程</h2>
+    </div>
+
+    <section class="panel form">
+      <label class="field">
+        <span class="label">出发地</span>
+        <select v-model="form.from">
+          <option value="">请选择</option>
+          <option v-for="loc in locations" :key="loc" :value="loc">{{ loc }}</option>
+          <option value="__custom__">其他</option>
+        </select>
+      </label>
+      <label v-if="form.from === '__custom__'" class="field">
+        <input v-model.trim="form.fromCustom" maxlength="8" placeholder="输入出发地（最多 8 字）">
+      </label>
+
+      <label class="field">
+        <span class="label">目的地</span>
+        <select v-model="form.to">
+          <option value="">请选择</option>
+          <option v-for="loc in locations" :key="loc" :value="loc">{{ loc }}</option>
+          <option value="__custom__">其他</option>
+        </select>
+      </label>
+      <label v-if="form.to === '__custom__'" class="field">
+        <input v-model.trim="form.toCustom" maxlength="8" placeholder="输入目的地（最多 8 字）">
+      </label>
+
+      <div class="field-row">
+        <label class="field">
+          <span class="label">出发日期</span>
+          <input type="date" v-model="form.date" :min="today" :max="maxDate">
+        </label>
+        <label class="field">
+          <span class="label">出发时间</span>
+          <input type="time" v-model="form.time" step="1800">
+        </label>
+      </div>
+
+      <label class="field">
+        <span class="label">再拼人数</span>
+        <div class="chips">
+          <button v-for="n in [1,2,3]" :key="n"
+                  class="chip" :class="{on: form.seats===n}"
+                  @click="form.seats=n">再拼 {{ n }} 人</button>
+        </div>
+      </label>
+
+      <label class="field">
+        <span class="label">联系方式</span>
+        <input v-model.trim="form.contact" placeholder="微信号或手机号">
+        <span class="field-note">仅同车成员可见</span>
+      </label>
+
+      <label class="field">
+        <span class="label">备注</span>
+        <input v-model.trim="form.remark" maxlength="20" placeholder="选填">
+      </label>
+
+      <p v-if="publishError" class="err">{{ publishError }}</p>
+      <button class="btn-primary block" :disabled="publishing" @click="submitTrip">
+        {{ publishing ? '发布中…' : '发布行程' }}
+      </button>
+    </section>
+  </main>
+
+  <!-- ===== 行程历史 ===== -->
+  <main v-if="view==='trips'" class="page">
+    <div class="page-head">
+      <button class="back" aria-label="返回" @click="go('menu')">
+        <svg class="back-ico" viewBox="0 0 24 24"><use href="#i-back"/></svg>
+      </button>
+      <h2 class="page-title">我的行程</h2>
+    </div>
+
+    <h3 class="section-h">我发起的</h3>
+    <div v-if="!myPublished.length" class="state-sm">暂无</div>
+    <div v-else class="list">
+      <article v-for="(t, i) in myPublished" :key="t.id" class="card" :style="{'--i': i}" @click="openTrip(t.id)">
+        <div class="card-head">
+          <span class="card-when">{{ t.displayDate }} {{ t.time }} 出发</span>
+          <span class="card-tag" :class="tagClass(t)">{{ tagOf(t) }}</span>
+        </div>
+        <div class="route">
+          <div class="rp"><span class="node start"></span><span class="loc">{{ t.from }}</span></div>
+          <div class="rp"><span class="node end"></span><span class="loc">{{ t.to }}</span></div>
+        </div>
+        <div class="card-foot">
+          <span class="seats">
+            <span class="pips">
+              <i v-for="n in ((t.capacity || 4) - 1)" :key="n" :class="{on: n <= (t.headcount || 0) + 1}"></i>
+            </span>
+            {{ (t.headcount || 0) + 1 }}/{{ (t.capacity || 4) - 1 }} 人
+          </span>
+          <span class="more">查看 ›</span>
+        </div>
+      </article>
+    </div>
+
+    <h3 class="section-h">我加入的</h3>
+    <div v-if="!myJoined.length" class="state-sm">暂无</div>
+    <div v-else class="list">
+      <article v-for="(t, i) in myJoined" :key="t.id" class="card" :style="{'--i': i}" @click="openTrip(t.id)">
+        <div class="card-head">
+          <span class="card-when">{{ t.displayDate }} {{ t.time }} 出发</span>
+          <span class="card-tag" :class="tagClass(t)">{{ tagOf(t) }}</span>
+        </div>
+        <div class="route">
+          <div class="rp"><span class="node start"></span><span class="loc">{{ t.from }}</span></div>
+          <div class="rp"><span class="node end"></span><span class="loc">{{ t.to }}</span></div>
+        </div>
+        <div class="card-foot">
+          <span class="seats">
+            <span class="pips">
+              <i v-for="n in ((t.capacity || 4) - 1)" :key="n" :class="{on: n <= (t.headcount || 0) + 1}"></i>
+            </span>
+            {{ (t.headcount || 0) + 1 }}/{{ (t.capacity || 4) - 1 }} 人
+          </span>
+          <span class="more">查看 ›</span>
+        </div>
+      </article>
+    </div>
+  </main>
+
+  <!-- ===== 关于 ===== -->
+  <main v-if="view==='about'" class="page">
+    <div class="page-head">
+      <button class="back" aria-label="返回" @click="go('menu')">
+        <svg class="back-ico" viewBox="0 0 24 24"><use href="#i-back"/></svg>
+      </button>
+    </div>
+    <div class="about-brand">
+      <img class="about-logo" src="/logo.png" alt="">
+      <span class="brand-text">
+        <img class="brand-wordmark" src="/wordmark.png" alt="百花同行">
+        <span class="brand-slogan">不再一个人出发</span>
+      </span>
+    </div>
+
+    <section class="panel">
+      <h3 class="panel-title">开源与共建</h3>
+      <div class="link-row" @click="openExternal('https://github.com/Prom1seCN')">
+        <span>GitHub</span><span class="link-arrow">→</span>
+      </div>
+      <div class="link-row" @click="openExternal('https://prom1se.cn')">
+        <span>开发者博客</span><span class="link-arrow">→</span>
+      </div>
+      <div class="link-row" @click="joinQQGroup">
+        <span>QQ群</span><span class="link-arrow">→</span>
+      </div>
+      <div class="link-row" @click="go('about')">
+        <span>共建者名单</span><span class="link-arrow">→</span>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h3 class="panel-title">安全提示</h3>
+      <p class="about-note">本平台仅提供信息展示，不提供车辆运营服务。请核实对方身份，联系成功后共同呼叫正规网约车，谨防诈骗。</p>
+    </section>
+  </main>
+
+  <!-- ===== 使用教程 ===== -->
+  <main v-if="view==='guide'" class="page">
+    <div class="page-head">
+      <button class="back" aria-label="返回" @click="go('menu')">
+        <svg class="back-ico" viewBox="0 0 24 24"><use href="#i-back"/></svg>
+      </button>
+      <h2 class="page-title">使用教程</h2>
+    </div>
+
+    <section class="panel">
+      <ol class="steps">
+        <li>
+          <span class="step-no">1</span>
+          <div>
+            <div class="step-title">邮箱认证</div>
+            <div class="step-text">请在企业微信——工作台——电子邮件查收验证码。</div>
+          </div>
+        </li>
+        <li>
+          <span class="step-no">2</span>
+          <div>
+            <div class="step-title">发布行程</div>
+            <div class="step-text">填写出发地、目的地、日期时间与联系方式。</div>
+          </div>
+        </li>
+        <li>
+          <span class="step-no">3</span>
+          <div>
+            <div class="step-title">等待加入</div>
+            <div class="step-text">行程在同行大厅展示，同路同学可以加入。</div>
+          </div>
+        </li>
+        <li>
+          <span class="step-no">4</span>
+          <div>
+            <div class="step-title">加入行程</div>
+            <div class="step-text">在大厅选择同路行程，加入后与成员互看联系方式。</div>
+          </div>
+        </li>
+        <li>
+          <span class="step-no">5</span>
+          <div>
+            <div class="step-title">共同乘车</div>
+            <div class="step-text">联系成功后共同呼叫正规网约车，线下分摊费用。</div>
+          </div>
+        </li>
+      </ol>
+    </section>
+
+    <section class="panel">
+      <h3 class="panel-title">安全提示</h3>
+      <p class="about-note">本平台仅提供信息展示，不提供车辆运营服务。请核实对方身份，联系成功后共同呼叫正规网约车，谨防诈骗。</p>
+    </section>
+
+    <button class="btn-primary block" @click="go('hall')">开始使用</button>
+  </main>
+
+  <!-- ===== 隐私政策与用户协议 ===== -->
+  <main v-if="view==='legal'" class="page">
+    <div class="page-head">
+      <button class="back" aria-label="返回" @click="go('menu')">
+        <svg class="back-ico" viewBox="0 0 24 24"><use href="#i-back"/></svg>
+      </button>
+      <h2 class="page-title">隐私政策与用户协议</h2>
+    </div>
+
+    <section class="panel">
+      <h3 class="legal-h">1. 定性与声明</h3>
+      <p class="legal-p">本平台仅作为信息发布与匹配工具，提供行程信息的发布、浏览与加入服务。本平台并非道路运输经营者，不提供运输服务，不指派司机、不调度车辆，亦不收取任何佣金或报酬。所有行程均由用户自行发起、自行联系、自行组织。</p>
+
+      <h3 class="legal-h">2. 互助性质与费用</h3>
+      <p class="legal-p">用户发起的行程属于非营利性校园互助拼车。用户间分摊的费用应仅限于打车费用等直接成本，任何价格表述均仅为参考，并非本平台定价。严禁利用本平台从事非法营运或盈利性活动。因费用计算或支付产生的纠纷，由当事人自行解决，与本平台无关。</p>
+
+      <h3 class="legal-h">3. 身份核验局限性</h3>
+      <p class="legal-p">本平台采用教育邮箱进行基础身份验证，但无法实时验证用户的真实身份、驾驶资质、车辆保险状态及车辆安全性能。用户应在实际接触中自行核实对方身份。</p>
+
+      <h3 class="legal-h">4. 风险自担与免责</h3>
+      <p class="legal-p">行程过程中如发生意外事故、人身伤害、财产损失或第三方纠纷，由相关责任方依据法律法规及交管部门认定承担责任。本平台在法律允许的最大范围内不承担民事赔偿责任或连带责任。</p>
+
+      <h3 class="legal-h">5. 隐私与数据安全</h3>
+      <p class="legal-p">本平台仅在必要范围内收集以下信息：</p>
+      <p class="legal-p legal-sub">认证信息：北化教育邮箱，用于校验在校生身份，不予公开。</p>
+      <p class="legal-p legal-sub">展示信息：用户主动填写的出发地、目的地、昵称及联系方式，仅在行程有效期内对同行程成员展示。</p>
+      <p class="legal-p legal-sub">行为统计：匿名统计发布、浏览、加入等行为数据，不含可识别个人身份的信息。</p>
+      <p class="legal-p">上述数据不用于商业用途；行程结束或失效后停止展示相关联系信息。</p>
+
+      <h3 class="legal-h">6. 联系方式披露与行程管理</h3>
+      <p class="legal-p legal-sub">加入行程后，可与同行程成员互相查看联系方式；未加入前无法查看他人联系方式。</p>
+      <p class="legal-p legal-sub">发起行程即代表同意向该行程成员展示所填写的联系方式。</p>
+      <p class="legal-p legal-sub">每位用户同时最多参与 2 个进行中的行程（含自己发布的与加入的）。</p>
+      <p class="legal-p legal-sub">可随时退出已加入但尚未出发的行程；发起人可取消或标记完成行程。</p>
+      <p class="legal-p legal-sub">行程到达出发时间后自动失效，不再接受加入。</p>
+
+      <h3 class="legal-h">7. 协议效力</h3>
+      <p class="legal-p">使用本平台服务即视为已理解并接受本协议的全部内容。</p>
+    </section>
+  </main>
+
+  <!-- ===== 菜单（手机端入口）===== -->
+  <main v-if="view==='menu'" class="page">
+    <nav class="menu-list">
+      <div v-for="m in menuListMobile" :key="m.key" class="menu-cell" @click="handleMenu(m.key)">
+        <span class="menu-label">{{ m.label }}</span>
+        <span v-if="m.note" class="menu-note">{{ m.note }}</span>
+        <span class="menu-arrow">›</span>
+      </div>
+    </nav>
+
+    <section v-if="isLoggedIn" class="id-card panel">
+      <span class="id-avatar">{{ idInitial }}</span>
+      <span class="id-name">{{ displayName }}</span>
+      <button class="id-edit" @click="openRename">修改ID</button>
+      <button class="id-edit" @click="openContactEdit">修改联系方式</button>
+    </section>
+  </main>
+
+    </div><!-- /stage -->
+  </div><!-- /shell -->
+
+  <!-- ===== 站点底部（全站可见）===== -->
+  <footer class="site-foot">
+    <span>© 2026 </span><a href="https://prom1se.cn" target="_blank" rel="noopener">Prom1seCN</a>
+    <span class="dot">·</span>
+    <a href="https://beian.miit.gov.cn/#/Integrated/index" target="_blank" rel="noopener">浙ICP备2026023301号</a>
+  </footer>
+
+  <!-- ===== 底部 Dock（仅移动端）===== -->
+  <nav class="tabbar">
+    <button class="tab" :class="{on: view==='hall'}" @click="go('hall')">
+      <span class="ic"><svg class="ti" viewBox="0 0 24 24"><use href="#i-users"/></svg></span>
+      <span class="tl">同行大厅</span>
+    </button>
+    <button class="tab tab-publish" :class="{on: view==='publish'}" @click="goPublish">
+      <span class="ic"><svg class="ti" viewBox="0 0 24 24"><use href="#i-publish"/></svg></span>
+      <span class="tl">发布</span>
+    </button>
+    <button class="tab" :class="{on: view==='menu'}" @click="go('menu')">
+      <span class="ic"><svg class="ti" viewBox="0 0 24 24"><use href="#i-menu"/></svg></span>
+      <span class="tl">菜单</span>
+    </button>
+  </nav>
+
+  <!-- ===== 选择弹层（日期 / 出发地）===== -->
+  <div v-if="sheetPicker" class="mask" @click.self="closePicker">
+    <div class="sheet">
+      <h3 class="sheet-title">{{ sheetPicker === 'date' ? '选择日期' : '选择出发地' }}</h3>
+      <div class="pick-list">
+        <button v-for="(o, i) in pickOptions" :key="o.v"
+                class="pick-row" :class="{on: o.v === activePickValue}"
+                :style="{'--i': i}" @click="pickOption(o.v)">
+          <span class="pick-label">{{ o.label }}</span>
+          <span v-if="o.hint" class="pick-hint">{{ o.hint }}</span>
+          <svg class="pick-check" viewBox="0 0 24 24"><use href="#i-check"/></svg>
+        </button>
+      </div>
+      <button class="btn-text" @click="closePicker">取消</button>
+    </div>
+  </div>
+
+
+  <!-- ===== 登录弹层 ===== -->
+  <div v-if="loginOpen" class="mask" @click.self="loginOpen=false">
+    <div class="sheet">
+      <h3 class="sheet-title">登录</h3>
+      <p class="sheet-hint">验证码请在企业微信——工作台——电子邮件查收</p>
+      <div class="field-row">
+        <input v-model.trim="loginPrefix" placeholder="学号"
+               inputmode="numeric" autocomplete="off" maxlength="15" class="input-grow">
+        <span class="suffix">@buct.edu.cn</span>
+      </div>
+      <div class="field-row">
+        <input v-model.trim="loginCode" placeholder="6 位验证码"
+               inputmode="numeric" autocomplete="one-time-code" maxlength="6" class="input-grow">
+        <button class="btn-ghost" :disabled="counting || sending" @click="sendCode">
+          {{ counting ? countdown + 's' : (sending ? '发送中' : '获取验证码') }}
+        </button>
+      </div>
+      <p v-if="loginError" class="err">{{ loginError }}</p>
+      <button class="btn-primary block" :disabled="loggingIn" @click="doLogin">
+        {{ loggingIn ? '登录中…' : '登录' }}
+      </button>
+      <button class="btn-text" @click="loginOpen=false">取消</button>
+    </div>
+  </div>
+
+  <!-- ===== 修改 ID ===== -->
+  <div v-if="idSheetOpen" class="mask" @click.self="idSheetOpen=false">
+    <div class="sheet">
+      <h3 class="sheet-title">修改 ID</h3>
+      <p class="sheet-hint">12 字以内，一天只能改一次</p>
+      <div class="field-row">
+        <input class="input-grow" v-model.trim="newId" maxlength="12" placeholder="输入新 ID">
+      </div>
+      <p v-if="idError" class="err">{{ idError }}</p>
+      <button class="btn-primary block" :disabled="savingId" @click="submitRename">
+        {{ savingId ? '保存中…' : '保存' }}
+      </button>
+      <button class="btn-text" @click="idSheetOpen=false">取消</button>
+    </div>
+  </div>
+
+  <!-- ===== 修改联系方式 ===== -->
+  <div v-if="contactSheetOpen" class="mask" @click.self="contactSheetOpen=false">
+    <div class="sheet">
+      <h3 class="sheet-title">修改联系方式</h3>
+      <p class="sheet-hint">仅同车成员可见</p>
+      <div class="field-row">
+        <input class="input-grow" v-model.trim="newContact" maxlength="50" placeholder="微信号或手机号">
+      </div>
+      <p v-if="contactError" class="err">{{ contactError }}</p>
+      <button class="btn-primary block" :disabled="savingContact" @click="submitContact">
+        {{ savingContact ? '保存中…' : '保存' }}
+      </button>
+      <button class="btn-text" @click="contactSheetOpen=false">取消</button>
+    </div>
+  </div>
+
+  <!-- ===== Toast ===== -->
+  <div v-if="toast" class="toast">{{ toast }}</div>
+
+</div>
+<script src="/vendor/vue.global.prod.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
