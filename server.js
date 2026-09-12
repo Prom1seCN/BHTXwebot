@@ -342,6 +342,34 @@ joinStatSchema.index({ joinedAt: 1 }, { expireAfterSeconds: 3600 });
 
 const JoinStat = mongoose.model("JoinStat", joinStatSchema);
 
+// ===== QQ 机器人支撑集合（v3.0.0：通知队列 / 提醒去重 / 群注册）=====
+const qqNotifySchema = new mongoose.Schema({
+  type: { type: String, enum: ["join", "leave"], required: true },
+  organizerOpenid: { type: String, required: true, index: true },
+  actorOpenid: { type: String, default: "" },
+  actorName: { type: String, default: "" },
+  tripLabel: { type: String, default: "" },
+  sentAt: { type: Date, default: null }
+}, { timestamps: true });
+qqNotifySchema.index({ createdAt: 1 }, { expireAfterSeconds: 7 * 86400 });
+const QQNotify = mongoose.model("QQNotify", qqNotifySchema);
+
+const qqRemindedSchema = new mongoose.Schema({
+  tripId: { type: mongoose.Schema.Types.ObjectId, required: true },
+  openid: { type: String, required: true }
+}, { timestamps: true });
+qqRemindedSchema.index({ tripId: 1, openid: 1 }, { unique: true });
+qqRemindedSchema.index({ createdAt: 1 }, { expireAfterSeconds: 30 * 86400 });
+const QQReminded = mongoose.model("QQReminded", qqRemindedSchema);
+
+const qqGroupSchema = new mongoose.Schema({
+  groupOpenid: { type: String, required: true, unique: true },
+  addedAt: { type: Date, default: Date.now },
+  lastActiveAt: { type: Date, default: Date.now },
+  lastBroadcastDate: { type: String, default: "" }
+});
+const QQGroup = mongoose.model("QQGroup", qqGroupSchema);
+
 async function trackEvent(type, tripId, openid, extra = {}) {
   try {
     // tripId 传空串会因 ObjectId cast 失败丢掉整条事件；非行程事件（发码/登录/改名）统一置 undefined
@@ -517,8 +545,14 @@ app.post("/api/analytics/event", verifyToken, async (req, res) => {
 // 1) 发布行程（预约同行，支持自定义地点与备注）
 app.post("/api/trips", publishLimiter, verifyToken, requireVerified, async (req, res) => {
   try {
-    const { from, to, date, time, contact, remark, capacity, organizerRole } = req.body;
+    const { from, to, date, time, remark, capacity, organizerRole } = req.body;
     const openid = req.user.openid;
+    // 发起人（发布与联系方式回退共用）
+    const publisher = await User.findOne({ openid });
+    // 联系方式：请求未携带时回退用户已存联系方式（QQ 机器人发布场景）
+    const contact = (req.body.contact && String(req.body.contact).trim())
+      ? String(req.body.contact).trim()
+      : (publisher && publisher.contact) || "";
 
     // v2.0.0 发布与加入统一限流：1小时内最多5次（成功发布才计数）
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
@@ -551,7 +585,6 @@ app.post("/api/trips", publishLimiter, verifyToken, requireVerified, async (req,
     const feeHint = buildFeeHint(from, to, finalCapacity);
 
     // 发起人默认副驾驶
-    const publisher = await User.findOne({ openid });
     const publisherName = publisher && publisher.displayName ? publisher.displayName : "北化校友";
     const trip = await Trip.create({
       from, to, date, time, contact,
@@ -705,6 +738,16 @@ app.post("/api/trips/:id/join", verifyToken, requireVerified, async (req, res) =
     trackEvent("trip_join", updated._id, openid, { fee: getTripPerPersonFee(updated) });
     // 记录加入次数（限流用）
     try { await JoinStat.create({ openid }); } catch (e) {}
+    // QQ 通知入队（qqbot 进程轮询后私聊发起人；发起人未绑定 QQ 时自动跳过）
+    try {
+      await QQNotify.create({
+        type: "join",
+        organizerOpenid: updated.openid,
+        actorOpenid: openid,
+        actorName: (user && user.displayName) || "有同学",
+        tripLabel: `${updated.from}→${updated.to} ${updated.date} ${updated.time}`
+      });
+    } catch (e) {}
     // 通知发起人有人加入（订阅消息，静默失败不影响主流程）
     // 发起人若已退出行程，则不再通知（角色不区分后的边界处理）
     const organizerActive = updated.members.some((m) => m.openid === trip.openid && m.status === "joined");
@@ -819,6 +862,17 @@ app.post("/api/trips/:id/leave", verifyToken, async (req, res) => {
     }
 
     trackEvent("trip_leave", updated._id, openid, { role: trip.openid === openid ? "organizer" : "passenger" });
+    // QQ 通知入队（同上；发起人自己退出时由 pull 端按 actorOpenid 过滤）
+    try {
+      const actor = await User.findOne({ openid }).select("displayName").lean();
+      await QQNotify.create({
+        type: "leave",
+        organizerOpenid: trip.openid,
+        actorOpenid: openid,
+        actorName: (actor && actor.displayName) || "一位同行者",
+        tripLabel: `${updated.from}→${updated.to} ${updated.date} ${updated.time}`
+      });
+    } catch (e) {}
     res.json({ message: "已退出行程", trip: updated });
   } catch (err) {
     console.error("退出行程失败:", err);
@@ -1492,6 +1546,252 @@ app.get("/api/stats/dashboard", async (req, res) => {
     console.error("获取看板数据失败:", err);
     res.status(500).json({ message: "服务器错误" });
   }
+});
+
+// ===== QQ 机器人内部接口（v3.0.0；ADMIN_KEY 鉴权，仅供本机 qqbot 进程调用）=====
+// 设计原则：撮合规则只保留一份实现 —— proxy 按身份签发短期 JWT 并以伪 IP 自调用公开接口，
+// 认证 / 限流 / 防超卖等中间件与业务 handler 全量复用；qqbot 进程不直接读写业务集合。
+
+const LOCATIONS = [
+  "北化北区", "北化东区", "北化西区", "昌平西山口", "乐多港万达",
+  "昌平悦荟", "昌平区医院", "昌平北站", "南口镇", "首都机场",
+  "大兴机场", "北京南站", "北京西站", "北京站", "北京朝阳站",
+  "北京丰台站", "清河站/北京北站"
+];
+
+// 由身份导出的稳定伪 IP（10.x 段）：使自调用走 express-rate-limit 的独立限流桶，
+// 避免 QQ 侧所有用户共享 127.0.0.1 的 IP 配额
+function pseudoIp(seed) {
+  let h = 0;
+  const s = String(seed);
+  for (let i = 0; i < s.length; i++) h = (h * 131 + s.charCodeAt(i)) >>> 0;
+  return `10.${(h >>> 16) & 255}.${(h >>> 8) & 255}.${h & 255}`;
+}
+
+function maskStudentEmail(email) {
+  const m = String(email || "").match(/^(\d{1,2})\d+(\d{2})@/);
+  return m ? `${m[1]}****${m[2]}@buct.edu.cn` : String(email || "");
+}
+
+const internalGuard = (req, res, next) => {
+  const k = req.headers["x-admin-key"] || req.query.key;
+  if (!k || k !== process.env.ADMIN_KEY) return res.status(403).json({ message: "无权访问" });
+  next();
+};
+
+async function selfApi(method, path, body, headers) {
+  return axios({
+    method,
+    url: `http://127.0.0.1:${PORT}/api${path}`,
+    data: body,
+    headers: headers || {},
+    validateStatus: () => true,
+    timeout: 20000
+  });
+}
+
+// 代理执行公开接口：{ qqOpenid, method, path, body }
+app.post("/api/internal/qq/proxy", internalGuard, async (req, res) => {
+  try {
+    const { qqOpenid, method = "GET", path: p, body } = req.body || {};
+    if (!qqOpenid || !p || !p.startsWith("/")) return res.status(400).json({ message: "参数缺失" });
+    const user = await User.findOne({ qqOpenId: qqOpenid }).select("openid").lean();
+    if (!user) return res.status(404).json({ code: "UNBOUND", message: "尚未绑定" });
+    const token = jwt.sign({ openid: user.openid }, JWT_SECRET, { expiresIn: "1h" });
+    const resp = await selfApi(method, p, body, {
+      Authorization: `Bearer ${token}`,
+      "X-Forwarded-For": pseudoIp(user.openid)
+    });
+    res.status(resp.status).json(resp.data);
+  } catch (err) {
+    console.error("[qq-internal] proxy 失败:", err.message);
+    res.status(500).json({ message: "服务器错误" });
+  }
+});
+
+// 当前身份概要（绑定状态 / ID / 邮箱脱敏）
+app.post("/api/internal/qq/whoami", internalGuard, async (req, res) => {
+  try {
+    const user = await User.findOne({ qqOpenId: req.body.qqOpenid })
+      .select("openid email displayName isVerified contact").lean();
+    if (!user) return res.json({ bound: false });
+    res.json({
+      bound: true,
+      displayName: user.displayName || "",
+      emailMasked: maskStudentEmail(user.email || user.openid),
+      contactSet: !!user.contact
+    });
+  } catch (err) {
+    console.error("[qq-internal] whoami 失败:", err.message);
+    res.status(500).json({ message: "服务器错误" });
+  }
+});
+
+// 绑定第一步：归属预检 + 复用公开发码接口（自带按邮箱 60s 冷却与 IP 限流）
+app.post("/api/internal/qq/bind-start", internalGuard, async (req, res) => {
+  try {
+    const { qqOpenid, studentId } = req.body || {};
+    if (!qqOpenid || !/^\d{6,15}$/.test(studentId || "")) {
+      return res.status(400).json({ message: "请提供正确的学号（纯数字）" });
+    }
+    const email = `${studentId}@buct.edu.cn`;
+    const byQQ = await User.findOne({ qqOpenId: qqOpenid }).select("openid email").lean();
+    if (byQQ && byQQ.email && byQQ.email !== email) {
+      return res.status(400).json({ message: `该QQ已绑定 ${maskStudentEmail(byQQ.email)}，如需更换请联系开发者` });
+    }
+    const byEmail = await User.findOne({ $or: [{ openid: email }, { email }] }).select("qqOpenId").lean();
+    if (byEmail && byEmail.qqOpenId && byEmail.qqOpenId !== qqOpenid) {
+      return res.status(400).json({ message: "该学号已绑定其他QQ账号" });
+    }
+    const resp = await selfApi("POST", "/auth/send-code", { emailPrefix: studentId }, {
+      "X-Forwarded-For": pseudoIp(qqOpenid)
+    });
+    if (resp.status !== 200) return res.status(resp.status).json(resp.data);
+    res.json({ message: "验证码已发送", emailMasked: maskStudentEmail(email) });
+  } catch (err) {
+    console.error("[qq-internal] bind-start 失败:", err.message);
+    res.status(500).json({ message: "服务器错误" });
+  }
+});
+
+// 绑定第二步：校验验证码并落 qqOpenid（唯一索引兜底防重复绑定）
+app.post("/api/internal/qq/bind-check", internalGuard, async (req, res) => {
+  try {
+    const { qqOpenid, studentId, code } = req.body || {};
+    if (!qqOpenid || !/^\d{6,15}$/.test(studentId || "") || !code) {
+      return res.status(400).json({ message: "参数缺失" });
+    }
+    const email = `${studentId}@buct.edu.cn`;
+    const auth = await Auth.findOne({ email, code: String(code), expiresAt: { $gt: new Date() } });
+    if (!auth) return res.status(400).json({ message: "验证码错误或已过期" });
+
+    const byQQ = await User.findOne({ qqOpenId: qqOpenid }).select("openid email").lean();
+    if (byQQ && byQQ.email && byQQ.email !== email) {
+      return res.status(400).json({ message: "该QQ已绑定其他学号" });
+    }
+    const byEmail = await User.findOne({ $or: [{ openid: email }, { email }] }).select("qqOpenId").lean();
+    if (byEmail && byEmail.qqOpenId && byEmail.qqOpenId !== qqOpenid) {
+      return res.status(400).json({ message: "该学号已绑定其他QQ账号" });
+    }
+
+    const user = await ensureUser(email);
+    user.isVerified = true;
+    if (!user.email) user.email = email;
+    user.qqOpenId = qqOpenid;
+    await user.save();
+    await ensureUniqueDisplayName(user);
+    await Auth.deleteMany({ email });
+    trackEvent("qq_bind", undefined, user.openid);
+    res.json({ message: "绑定成功", displayName: user.displayName });
+  } catch (err) {
+    console.error("[qq-internal] bind-check 失败:", err.message);
+    res.status(500).json({ message: "服务器错误" });
+  }
+});
+
+// 通知拉取（qqbot 每 30s 轮询）：at-most-once，失败不重试避免轰炸
+app.post("/api/internal/qq/notify-pull", internalGuard, async (req, res) => {
+  try {
+    const since = new Date(Date.now() - 30 * 60 * 1000);
+    const docs = await QQNotify.find({ sentAt: null, createdAt: { $gte: since } })
+      .sort({ createdAt: 1 }).limit(20).lean();
+    const items = [];
+    for (const n of docs) {
+      await QQNotify.updateOne({ _id: n._id }, { sentAt: new Date() });
+      if (n.actorOpenid && n.actorOpenid === n.organizerOpenid) continue;
+      const u = await User.findOne({ openid: n.organizerOpenid }).select("qqOpenId").lean();
+      if (!u || !u.qqOpenId) continue; // 发起人未绑定 QQ：静默跳过（网页无推送，不补偿）
+      items.push({ qqOpenid: u.qqOpenId, type: n.type, tripLabel: n.tripLabel, actorName: n.actorName });
+    }
+    res.json({ items });
+  } catch (err) {
+    console.error("[qq-internal] notify-pull 失败:", err.message);
+    res.status(500).json({ message: "服务器错误" });
+  }
+});
+
+// 出发提醒候选：进行中行程、距出发约 1 小时内、成员已绑 QQ 且未提醒过
+app.post("/api/internal/qq/reminder-due", internalGuard, async (req, res) => {
+  try {
+    const now = Date.now();
+    const trips = await Trip.find({ status: { $in: ["active", "full"] } })
+      .select("from to date time members openid").lean();
+    const items = [];
+    for (const t of trips) {
+      const dep = buildTripDateTime(t);
+      if (!dep) continue;
+      const diff = dep.getTime() - now;
+      if (diff > 75 * 60 * 1000 || diff < -5 * 60 * 1000) continue;
+      const openids = [...new Set([t.openid, ...t.members.filter((m) => m.status === "joined").map((m) => m.openid)])];
+      const users = await User.find({ openid: { $in: openids }, qqOpenId: { $nin: ["", null] } })
+        .select("openid qqOpenId").lean();
+      for (const u of users) {
+        const dup = await QQReminded.findOne({ tripId: t._id, openid: u.openid }).lean();
+        if (dup) continue;
+        items.push({ tripId: String(t._id), openid: u.openid, qqOpenid: u.qqOpenId, tripLabel: `${t.from}→${t.to} ${t.date} ${t.time}` });
+      }
+    }
+    res.json({ items });
+  } catch (err) {
+    console.error("[qq-internal] reminder-due 失败:", err.message);
+    res.status(500).json({ message: "服务器错误" });
+  }
+});
+
+app.post("/api/internal/qq/reminder-sent", internalGuard, async (req, res) => {
+  try {
+    const { tripId, openid } = req.body || {};
+    if (!tripId || !openid) return res.status(400).json({ message: "参数缺失" });
+    try { await QQReminded.create({ tripId, openid }); } catch (e) {} // 唯一索引冲突 = 已提醒，幂等
+    res.json({ message: "ok" });
+  } catch (err) {
+    console.error("[qq-internal] reminder-sent 失败:", err.message);
+    res.status(500).json({ message: "服务器错误" });
+  }
+});
+
+// 群注册（qqbot 收到进群/群消息时上报）
+app.post("/api/internal/qq/groups", internalGuard, async (req, res) => {
+  try {
+    if (!req.body.groupOpenid) return res.status(400).json({ message: "参数缺失" });
+    await QQGroup.updateOne(
+      { groupOpenid: req.body.groupOpenid },
+      { $set: { lastActiveAt: new Date() }, $setOnInsert: { addedAt: new Date() } },
+      { upsert: true }
+    );
+    res.json({ message: "ok" });
+  } catch (err) {
+    console.error("[qq-internal] groups 上报失败:", err.message);
+    res.status(500).json({ message: "服务器错误" });
+  }
+});
+
+// 每日播报内容（07:30 由 qqbot 触发）：已标记过的群不再重复拉取
+app.post("/api/internal/qq/broadcast-today", internalGuard, async (req, res) => {
+  try {
+    const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10); // UTC+8 自然日
+    const groups = await QQGroup.find({ lastBroadcastDate: { $ne: today } }).select("groupOpenid").lean();
+    const trips = await Trip.find({ date: today, status: { $in: ["active", "full"] } })
+      .select("from to time capacity headcount").sort({ time: 1 }).lean();
+    let content = null;
+    if (trips.length) {
+      const lines = trips.map((t, i) => {
+        const left = (t.capacity || 4) - 1 - (t.headcount || 0);
+        return `${i + 1}. ${t.time} ${t.from}→${t.to}（余${left}位）`;
+      });
+      content = `【百花同行 · 今日出行 ${trips.length} 班】\n${lines.join("\n")}\n上车请@我「加入 序号」；发布行程直接@我说时间和路线。\n网页版：bhtx.prom1se.cn`;
+    }
+    await QQGroup.updateMany({ lastBroadcastDate: { $ne: today } }, { lastBroadcastDate: today });
+    res.json({ content, groups: groups.map((g) => g.groupOpenid) });
+  } catch (err) {
+    console.error("[qq-internal] broadcast-today 失败:", err.message);
+    res.status(500).json({ message: "服务器错误" });
+  }
+});
+
+// 机器人可用地点库（与前端 LOCATIONS 同源，供解析器匹配）
+app.get("/api/internal/qq/locations", internalGuard, (req, res) => {
+  res.json({ locations: LOCATIONS });
 });
 
 app.listen(PORT, () => {

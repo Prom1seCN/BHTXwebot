@@ -1,18 +1,21 @@
 /**
  * 百花同行 QQ 官方机器人（v3.0.0）
  *
- * 定位：薄壳进程。只做事件接收 / 自然语言解析 / 回复组装；
- *       一切撮合动作经 server.js 内部接口执行（业务规则只保留一份实现，不直接读写业务集合）。
+ * 定位：薄壳进程。只做事件接收 / 自然语言解析 / 回复组装 / 通知推送；
+ *       一切撮合动作经 server.js 内部接口执行（proxy 以身份 JWT + 伪 IP 自调用公开接口，
+ *       认证 / 限流 / 防超卖 100% 复用；qqbot 不直接读写业务集合）。
  *
  * 接入机制（官方 api-v2）：
- *   · AccessToken：POST bots.qq.com/app/getAppAccessToken（appId + clientSecret，有时效，提前刷新）
- *   · WebSocket：wss://api.sgroup.qq.com/websocket/，鉴权头格式 "QQBot {AccessToken}"
- *   · 握手：op10 Hello(心跳周期) → op2 Identify → op0 Dispatch(READY, session_id) → 周期 op1 心跳 → op11 ACK
- *   · 断线：op13 服务端要求重连 / 连接断开 → op6 Resume（session_id + seq，服务端补发漏掉的事件）
- *   · intents：GROUP_AND_C2C_EVENT (1<<25)，含群@消息 / 单聊 / 进退群 / 好友事件
+ *   · AccessToken：POST bots.qq.com/app/getAppAccessToken，提前 60s 刷新
+ *   · WebSocket：wss://api.sgroup.qq.com/websocket/，op10→op2 Identify→op0 READY→op1 心跳；断线 op6 Resume
+ *   · intents：GROUP_AND_C2C_EVENT (1<<25)
+ *   · 实测（2026-09-13）：同一用户 C2C 的 user_openid 与群内 member_openid 同值（AppID 级标识），
+ *     绑定后的身份在群聊与私聊通用；若未来发现跨群不一致，需改为 qqOpenIds 数组（已知项，见 HANDOVER）
  *
- * 当前阶段：链路验证骨架 —— 回显收到的群聊与单聊消息，并记录 openid（用于 user_openid 跨群一致性实测）。
- * 凭据全部来自环境变量 QQ_BOT_APP_ID / QQ_BOT_APP_SECRET（.env，不进 git）。
+ * 支撑接口（server.js /api/internal/qq/*）：proxy / whoami / bind-start / bind-check /
+ *   notify-pull / reminder-due / reminder-sent / groups / broadcast-today / locations
+ *
+ * 凭据：环境变量 QQ_BOT_APP_ID / QQ_BOT_APP_SECRET / ADMIN_KEY（.env，不进 git）
  */
 
 const WebSocket = require("ws");
@@ -21,23 +24,28 @@ const axios = require("axios");
 const CONFIG = {
   appId: process.env.QQ_BOT_APP_ID || "",
   clientSecret: process.env.QQ_BOT_APP_SECRET || "",
-  // GROUP_AND_C2C_EVENT：群@消息 / 单聊消息 / 机器人进退群 / 好友增删
   intents: 1 << 25,
   gateway: process.env.QQ_BOT_GATEWAY || "wss://api.sgroup.qq.com/websocket/",
   apiBase: process.env.QQ_BOT_API_BASE || "https://api.sgroup.qq.com",
-  tokenUrl: "https://bots.qq.com/app/getAppAccessToken"
+  tokenUrl: "https://bots.qq.com/app/getAppAccessToken",
+  internalBase: `http://127.0.0.1:${process.env.PORT || 3100}/api/internal/qq`,
+  publicBase: `http://127.0.0.1:${process.env.PORT || 3100}/api`
 };
 
 if (!CONFIG.appId || !CONFIG.clientSecret) {
   console.error("[qqbot] 缺少环境变量 QQ_BOT_APP_ID / QQ_BOT_APP_SECRET");
   process.exit(1);
 }
+if (!process.env.ADMIN_KEY) console.error("[qqbot] 警告：缺少 ADMIN_KEY，内部接口调用将失败");
 
 function log(msg) {
   console.log(`[qqbot ${new Date().toISOString()}] ${msg}`);
 }
 
-// ===== AccessToken（有时效，提前 60s 刷新）=====
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const DAY_MS = 86400000;
+
+// ===== AccessToken =====
 let accessToken = "";
 let tokenExpireAt = 0;
 
@@ -60,48 +68,477 @@ async function ensureToken() {
   return accessToken;
 }
 
-// ===== 消息发送（被动回复：携带 msg_id，不占主动消息额度；同一条消息多次回复递增 msg_seq）=====
-async function replyGroup(groupOpenid, content, msgId, msgSeq) {
-  const token = await ensureToken();
-  return axios.post(`${CONFIG.apiBase}/v2/groups/${groupOpenid}/messages`,
-    { content, msg_type: 0, msg_id: msgId, msg_seq: msgSeq || 1 },
-    { headers: { Authorization: `QQBot ${token}` }, timeout: 10000 });
+// ===== 发送（被动回复带 msg_id 不占额度；主动消息有每日额度且用户可关闭）=====
+async function replyGroup(groupOpenid, content, msgId) {
+  return qqSend(`${CONFIG.apiBase}/v2/groups/${groupOpenid}/messages`,
+    { content, msg_type: 0, msg_id: msgId, msg_seq: 1 });
 }
 
-async function replyC2C(userOpenid, content, msgId, msgSeq) {
+async function replyC2C(userOpenid, content, msgId) {
+  return qqSend(`${CONFIG.apiBase}/v2/users/${userOpenid}/messages`,
+    { content, msg_type: 0, msg_id: msgId, msg_seq: 1 });
+}
+
+async function sendGroupProactive(groupOpenid, content) {
+  return qqSend(`${CONFIG.apiBase}/v2/groups/${groupOpenid}/messages`, { content, msg_type: 0 });
+}
+
+async function sendC2CProactive(userOpenid, content) {
+  return qqSend(`${CONFIG.apiBase}/v2/users/${userOpenid}/messages`, { content, msg_type: 0 });
+}
+
+async function qqSend(url, body) {
   const token = await ensureToken();
-  return axios.post(`${CONFIG.apiBase}/v2/users/${userOpenid}/messages`,
-    { content, msg_type: 0, msg_id: msgId, msg_seq: msgSeq || 1 },
-    { headers: { Authorization: `QQBot ${token}` }, timeout: 10000 });
+  return axios.post(url, body, {
+    headers: { Authorization: `QQBot ${token}` },
+    timeout: 10000,
+    validateStatus: () => true
+  });
 }
 
 function describeApiError(e) {
-  return e.response
-    ? `HTTP ${e.response.status} ${JSON.stringify(e.response.data).slice(0, 300)}`
-    : e.message;
+  return e.response ? `HTTP ${e.response.status} ${JSON.stringify(e.response.data).slice(0, 300)}` : e.message;
 }
 
-// ===== 事件处理（骨架：全量记录 openid 供一致性实测 + 回显确认链路）=====
-async function handleEvent(type, d) {
-  // 调研实测用：完整记录事件字段（截断），核对 user_openid / group_openid 语义
-  log(`EVENT ${type} ${JSON.stringify(d).slice(0, 600)}`);
+// ===== 内部接口 =====
+const INTERNAL = { base: CONFIG.internalBase, key: process.env.ADMIN_KEY || "" };
 
+async function internal(path, body) {
+  return axios.post(`${INTERNAL.base}/${path}`, body || {}, {
+    headers: { "x-admin-key": INTERNAL.key },
+    timeout: 20000,
+    validateStatus: () => true
+  });
+}
+
+async function proxy(uid, method, path, body) {
+  return internal("proxy", { qqOpenid: uid, method, path, body: body || {} });
+}
+
+async function whoami(uid) {
   try {
-    if (type === "GROUP_AT_MESSAGE_CREATE") {
-      const content = (d.content || "").trim();
-      // 去掉官方转义的 @ 段（content 可能以 "/" 或空格开头，trim 后回显）
-      await replyGroup(d.group_openid, "收到：" + (content || "(空)"), d.id);
-    } else if (type === "C2C_MESSAGE_CREATE") {
-      const content = (d.content || "").trim();
-      await replyC2C(d.user_openid, "收到：" + (content || "(空)"), d.id);
-    } else if (type === "GROUP_ADD_ROBOT") {
-      log(`机器人进群 group_openid=${d.group_openid} op=(${d.op_user_openid || ""})`);
-    } else if (type === "FRIEND_ADD") {
-      log(`新好友 user_openid=${d.user_openid || (d.user && d.user.user_openid) || ""}`);
+    const r = await internal("whoami", { qqOpenid: uid });
+    return r.status === 200 ? r.data : null;
+  } catch (e) { return null; }
+}
+
+// ===== 自然语言解析 =====
+// 地点库：启动时从 server.js 拉取（权威源），失败时用内置兜底（与前端 LOCATIONS 一致）
+let LOCATIONS = [
+  "北化北区", "北化东区", "北化西区", "昌平西山口", "乐多港万达",
+  "昌平悦荟", "昌平区医院", "昌平北站", "南口镇", "首都机场",
+  "大兴机场", "北京南站", "北京西站", "北京站", "北京朝阳站",
+  "北京丰台站", "清河站/北京北站"
+];
+
+async function loadLocations() {
+  try {
+    const r = await axios.get(`${INTERNAL.base}/locations`, {
+      headers: { "x-admin-key": INTERNAL.key }, timeout: 10000
+    });
+    if (r.status === 200 && Array.isArray(r.data.locations) && r.data.locations.length) {
+      LOCATIONS = r.data.locations;
+      log(`地点库已加载（${LOCATIONS.length} 个）`);
     }
-  } catch (e) {
-    log(`回复失败: ${describeApiError(e)}`);
+  } catch (e) { log("locations 拉取失败，使用内置列表"); }
+}
+
+const CN_MAP = { 零: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+
+function cnNum(s) {
+  if (/^\d+$/.test(s)) return parseInt(s, 10);
+  if (s === "十") return 10;
+  const i = s.indexOf("十");
+  if (i === -1) return CN_MAP[s] !== undefined ? CN_MAP[s] : null;
+  const a = i > 0 ? CN_MAP[s[0]] : 1;
+  const b = i < s.length - 1 ? CN_MAP[s[i + 1]] : 0;
+  return (a == null || b == null) ? null : a * 10 + b;
+}
+
+// UTC+8 墙钟（用 UTC 字段读取）
+const cstNow = () => new Date(Date.now() + 8 * 3600 * 1000);
+function cstDate(offsetDays) {
+  return new Date(cstNow().getTime() + offsetDays * DAY_MS).toISOString().slice(0, 10);
+}
+const DOW = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 日: 0, 天: 0 };
+
+// 日期词匹配（发布与查询共用），返回 { date, match } 或 { date: null, match: null }
+function matchDate(t) {
+  const dm = t.match(/(今天|今日|明天|后天|大后天|(?:下{1,2})?(?:周|星期)\s*([一二三四五六日天])|(\d{1,2})\s*月\s*(\d{1,2})\s*[日号])/);
+  if (!dm) return { date: null, match: null };
+  const w = dm[1];
+  let date;
+  if (/^今/.test(w)) date = cstDate(0);
+  else if (/^明/.test(w)) date = cstDate(1);
+  else if (/^大后/.test(w)) date = cstDate(3);
+  else if (/^后/.test(w)) date = cstDate(2);
+  else if (dm[2]) {
+    const target = DOW[dm[2]];
+    let diff = (target - cstNow().getUTCDay() + 7) % 7;
+    if (diff === 0) diff = 7;
+    if (/下/.test(w) && diff < 7) diff += 7;
+    date = cstDate(diff);
+  } else {
+    const mm = parseInt(dm[3], 10), dd = parseInt(dm[4], 10);
+    if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return { date: null, match: null };
+    let y = cstNow().getUTCFullYear();
+    date = `${y}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
+    if (date < cstDate(0)) date = `${y + 1}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
   }
+  return { date, match: dm[0] };
+}
+
+// 时间匹配：支持「下午四点 / 4点半 / 16:30 / 九点四十五」等
+function matchTime(t) {
+  const hm = t.match(/(?:^|[^0-9])(\d{1,2}):([0-5]\d)/);
+  if (hm) return { time: `${String(hm[1]).padStart(2, "0")}:${hm[2]}`, match: hm[0].replace(/^[^0-9]/, "") };
+  const tm = t.match(/(凌晨|清晨|早上|早晨|上午|中午|午后|下午|傍晚|晚上|夜里)?\s*(\d{1,2}|[零一二两三四五六七八九十]{1,3})\s*点(?:\s*(半|一刻|三刻|\d{1,2}|[零一二三四五六七八九十]{1,2})\s*分?)?/);
+  if (!tm) return null;
+  let h = /^\d+$/.test(tm[2]) ? parseInt(tm[2], 10) : cnNum(tm[2]);
+  let min = 0;
+  if (tm[3]) {
+    if (tm[3] === "半") min = 30;
+    else if (tm[3] === "一刻") min = 15;
+    else if (tm[3] === "三刻") min = 45;
+    else min = /^\d+$/.test(tm[3]) ? parseInt(tm[3], 10) : cnNum(tm[3]);
+  }
+  if (h == null || min == null || h > 23 || min > 59) return { error: "出发时间格式没看懂（例如：下午四点半）" };
+  const md = tm[1] || "";
+  if (/下午|午后|傍晚|晚上|夜里/.test(md) && h < 12) h += 12;
+  if (md === "中午" && h < 6) h += 12;
+  // 无上下午限定时：≤7 点默认视为下午（校园出行场景凌晨发布不现实；"明天9点"仍指上午）
+  if (!md && h <= 7) h += 12;
+  return { time: `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`, match: tm[0] };
+}
+
+function parseRoute(text) {
+  const found = [];
+  for (const loc of LOCATIONS) {
+    let idx = text.indexOf(loc);
+    while (idx !== -1) { found.push({ loc, idx }); idx = text.indexOf(loc, idx + loc.length); }
+  }
+  if (found.length < 2) return null;
+  found.sort((a, b) => a.idx - b.idx);
+  const from = found[0].loc, to = found[1].loc;
+  return from === to ? null : { from, to };
+}
+
+// 发布解析：日期 + 时间 + 路线，缺一给明确指引
+function parsePublish(raw) {
+  let t = " " + raw.replace(/\s+/g, " ").trim() + " ";
+  t = t.replace(/今[晚早]/g, " 今天 ").replace(/明[晚早]/g, " 明天 ");
+  t = t.replace(/^\s*(发布|发车|拼车)\s*/, " ");
+
+  const d = matchDate(t);
+  let rest = d.match ? t.replace(d.match, " ") : t;
+  const tm = matchTime(rest);
+  if (!d.match && !tm) return null; // 完全不含时间信息，不像发布意图
+  if (d.match && !tm) return { error: "请说明出发时间（例如：明天下午四点）" };
+  if (!d.match && tm && !tm.error) return { error: "请说明出发日期（例如：明天、周五、10月1日）" };
+  if (tm.error) return { error: tm.error };
+  rest = rest.replace(tm.match, " ");
+
+  const route = parseRoute(rest);
+  if (!route) return { error: "没找到起终点。出发地和目的地用「到」连接，需为常用地点（如北化北区、北京南站）" };
+  const dep = new Date(`${d.date}T${tm.time}:00+08:00`);
+  if (dep.getTime() <= Date.now()) return { error: "出发时间必须晚于当前时间" };
+  return { date: d.date, time: tm.time, from: route.from, to: route.to };
+}
+
+// 查询解析：日期与起终点均可选
+function parseQuery(raw) {
+  let t = " " + raw.replace(/\s+/g, " ").trim() + " ";
+  const d = matchDate(t);
+  let rest = d.match ? t.replace(d.match, " ") : t;
+  const route = parseRoute(rest);
+  return { date: d.date, from: route && route.from, to: route && route.to };
+}
+
+// ===== 会话（按聊天上下文隔离；TTL 10 分钟）=====
+const sessions = new Map();
+const bindStates = new Map();
+const SESSION_TTL = 10 * 60 * 1000;
+
+function session(key) {
+  let s = sessions.get(key);
+  if (!s) { s = { results: [], myJoined: [], pending: null, ts: Date.now() }; sessions.set(key, s); }
+  s.ts = Date.now();
+  return s;
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, s] of sessions) if (now - s.ts > SESSION_TTL) sessions.delete(k);
+  for (const [k, s] of bindStates) if (now - s.ts > SESSION_TTL) bindStates.delete(k);
+}, 5 * 60 * 1000);
+
+// ===== 文案 =====
+const HELP_TEXT = [
+  "【百花同行 · 指令】",
+  "发布行程：@我 明天下午四点 北化北区到北京南站",
+  "查询：查 明天 / 查 明天 北化北区",
+  "加入：加入 序号（查询后）",
+  "我的行程：我的",
+  "退出：退出 序号（「我的」之后）",
+  "绑定 / 联系方式：私聊发送",
+  "网页版：bhtx.prom1se.cn"
+].join("\n");
+
+const FALLBACK_TEXT = "没看懂这条消息。\n发布示例：明天下午四点 北化北区到北京南站\n查询示例：查 明天\n发送「帮助」查看全部指令";
+const BIND_HINT = "尚未绑定。请私聊我发送「绑定 学号」（先添加我为好友），验证北化邮箱后即可发布和加入行程。";
+
+function fmtCN(d) {
+  const p = String(d || "").split("-");
+  return p.length === 3 ? `${parseInt(p[1], 10)}月${parseInt(p[2], 10)}日` : String(d || "");
+}
+
+function apiMsg(r) {
+  const b = r.data || {};
+  if (b.code === "UNBOUND") return BIND_HINT;
+  return b.message || "操作失败，请稍后再试";
+}
+
+function clean(t) {
+  return String(t || "").replace(/^[/／]/, "").trim();
+}
+
+// ===== 指令分发 =====
+async function handleCommand(raw, ctxKey, reply, uid, isDM) {
+  const t = raw;
+  const s = session(ctxKey);
+
+  // 私聊绑定第二步：验证码校验（须先「绑定 学号」触发发码）
+  if (isDM) {
+    const cm = raw.match(/^验证码\s*(\d{4,8})$/);
+    if (cm) {
+      const st = bindStates.get(uid);
+      if (!st) return reply("请先发送：绑定 学号");
+      const r = await internal("bind-check", { qqOpenid: uid, studentId: st.studentId, code: cm[1] });
+      bindStates.delete(uid);
+      if (r.status !== 200) return reply((r.data && r.data.message) || "验证失败，请重试");
+      return reply(`绑定成功！你的ID：${r.data.displayName}\n现在可以在群里发布行程：明天下午四点 北化北区到北京南站`);
+    }
+  }
+
+  if (/^(帮助|菜单|功能|指令|命令|help)$/i.test(t)) return reply(HELP_TEXT);
+
+  if (/^绑定/.test(t)) {
+    if (isDM) return handleBindDM(raw, uid, reply);
+    return reply("绑定请在私聊完成（学号不宜留在群聊天记录）：\n先添加我为好友，然后私聊发送「绑定 学号」");
+  }
+
+  if (/^联系方式/.test(t)) {
+    if (!isDM) {
+      return reply("联系方式涉及隐私，请私聊我发送「联系方式 微信号」。\n提示：该内容已出现在群里，建议尽快更换。");
+    }
+    const m = t.match(/^联系方式\s+(.+)$/);
+    if (!m) return reply("请发送：联系方式 微信号或手机号");
+    const r = await proxy(uid, "PUT", "/user/contact", { contact: m[1].trim().slice(0, 50) });
+    if (r.status !== 200) return reply(apiMsg(r));
+    return reply("联系方式已保存，发布行程将默认使用它（仅同车成员可见）");
+  }
+
+  if (/^(确认|确认发布)$/.test(t)) {
+    const p = s.pending;
+    if (!p) return reply("当前没有待发布的行程");
+    if (p.uid !== uid) return reply("该确认仅限发起发布的人操作");
+    s.pending = null;
+    const r = await proxy(uid, "POST", "/trips", { from: p.from, to: p.to, date: p.date, time: p.time, capacity: 4 });
+    if (r.status !== 200) return reply(apiMsg(r));
+    const trip = (r.data && r.data.trip) || {};
+    return reply(
+      `已发布 ✓\n${fmtCN(trip.date)} ${trip.time} ${trip.from} → ${trip.to}\n` +
+      `${trip.feeHint ? trip.feeHint + "\n" : ""}默认再拼 2 人；有新同行者时我会私聊提醒你（需添加我为好友）。`
+    );
+  }
+
+  if (/^取消/.test(t)) {
+    const p = s.pending;
+    if (p && p.uid !== uid) return reply("该操作仅限发起发布的人操作");
+    if (!p) return reply("当前没有待发布的行程");
+    s.pending = null;
+    return reply("已取消");
+  }
+
+  if (/^(查|查询|找)/.test(t)) {
+    const q = parseQuery(t);
+    // 大厅对游客开放：查询不要求绑定
+    let list;
+    try {
+      const r = await axios.get(`${CONFIG.publicBase}/trips?limit=100`, { timeout: 15000 });
+      list = Array.isArray(r.data) ? r.data : [];
+    } catch (e) {
+      return reply("查询失败，请稍后再试");
+    }
+    if (q.date) list = list.filter((x) => x.date === q.date);
+    if (q.from) list = list.filter((x) => x.from === q.from);
+    if (q.to) list = list.filter((x) => x.to === q.to);
+    list.sort((a, b) => String(a.date + a.time).localeCompare(String(b.date + b.time)));
+    if (!list.length) return reply("该条件下暂无行程。发布示例：明天下午四点 北化北区到北京南站");
+    list = list.slice(0, 10);
+    s.results = list;
+    const scope = q.date ? fmtCN(q.date) : "近期";
+    const route = [q.from, q.to].filter(Boolean).join("→");
+    return reply(
+      `【${scope}${route ? " · " + route : ""}】共 ${list.length} 班\n` +
+      list.map((x, i) => `${i + 1}. ${fmtCN(x.date)} ${x.time} ${x.from}→${x.to} 余${(x.capacity || 4) - 1 - (x.headcount || 0)}位`).join("\n") +
+      "\n回复「加入 序号」上车"
+    );
+  }
+
+  if (/^(我的|我的行程)$/.test(t)) {
+    const r = await proxy(uid, "GET", "/mytrips/active");
+    if (r.status !== 200) return reply(apiMsg(r));
+    const trips = (r.data && r.data.trips) || [];
+    if (!trips.length) return reply("暂无进行中的行程");
+    const org = [], joined = [];
+    trips.forEach((x) => (x.isOrganizer ? org : joined).push(x));
+    s.myJoined = joined;
+    const f = (x) => `${fmtCN(x.date)} ${x.time} ${x.from}→${x.to}（${(x.headcount || 0) + 1}/${(x.capacity || 4) - 1}${x.isFull ? "·已满" : ""}）`;
+    let out = "";
+    if (org.length) out += "我发起的：\n" + org.map((x, i) => `${i + 1}. ${f(x)}`).join("\n") + "\n";
+    if (joined.length) out += "我加入的（回复「退出 序号」可退出）：\n" + joined.map((x, i) => `${i + 1}. ${f(x)}`).join("\n");
+    return reply(out.trim());
+  }
+
+  const jm = t.match(/^(加入|上车)\s*(\d{1,2})$/);
+  if (jm) {
+    const list = s.results || [];
+    if (!list.length) return reply("请先查询：发送「查 明天」或「查 明天 北化北区」");
+    const trip = list[parseInt(jm[2], 10) - 1];
+    if (!trip) return reply(`序号超出范围（1-${list.length}）`);
+    const r = await proxy(uid, "POST", `/trips/${trip.id}/join`, {});
+    if (r.status !== 200) return reply(apiMsg(r));
+    const x = (r.data && r.data.trip) || trip;
+    return reply(
+      `已加入 ✓ ${fmtCN(x.date)} ${x.time} ${x.from}→${x.to}（${(x.headcount || 0) + 1}/${(x.capacity || 4) - 1}）\n` +
+      "同车成员联系方式在网页详情页互看；出发前 1 小时我会提醒你。"
+    );
+  }
+
+  const lm = t.match(/^(退出|下车)\s*(\d{1,2})$/);
+  if (lm) {
+    const list = s.myJoined || [];
+    if (!list.length) return reply("请先发送「我的」查看进行中的行程");
+    const trip = list[parseInt(lm[2], 10) - 1];
+    if (!trip) return reply(`序号超出范围（1-${list.length}）`);
+    const r = await proxy(uid, "POST", `/trips/${trip.id}/leave`, {});
+    if (r.status !== 200) return reply(apiMsg(r));
+    return reply(`已退出：${fmtCN(trip.date)} ${trip.time} ${trip.from}→${trip.to}`);
+  }
+
+  // 其余消息：尝试按发布意图解析
+  const p = parsePublish(t);
+  if (p && p.error) return reply(p.error + "\n\n发布示例：明天下午四点 北化北区到北京南站\n发送「帮助」查看全部指令");
+  if (p) {
+    s.pending = { date: p.date, time: p.time, from: p.from, to: p.to, uid };
+    return reply(`待发布：\n${fmtCN(p.date)} ${p.time} ${p.from} → ${p.to}\n回复「确认」发布，「取消」放弃`);
+  }
+  return reply(FALLBACK_TEXT);
+}
+
+// 私聊绑定流
+async function handleBindDM(raw, uid, reply) {
+  const who = await whoami(uid);
+  if (who && who.bound) return reply(`你已绑定 ${who.emailMasked}（${who.displayName}），无需重复绑定`);
+  const m = raw.match(/^绑定\s*(\d{6,15})$/);
+  if (!m) return reply("请发送：绑定 学号\n例如：绑定 2024010101\n验证码将发送到你的北化邮箱（企业微信-工作台-电子邮件查收）");
+  const r = await internal("bind-start", { qqOpenid: uid, studentId: m[1] });
+  if (r.status !== 200) return reply((r.data && r.data.message) || "发送失败，请稍后再试");
+  bindStates.set(uid, { studentId: m[1], ts: Date.now() });
+  reply(`验证码已发送至 ${r.data.emailMasked}。\n回复：验证码 6位数字`);
+}
+
+// ===== 事件入口 =====
+function registerGroup(groupOpenid) {
+  if (!groupOpenid) return;
+  internal("groups", { groupOpenid }).catch(() => {});
+}
+
+async function handleGroupMessage(d) {
+  const groupOpenid = d.group_openid;
+  const uid = (d.author && (d.author.member_openid || d.author.user_openid)) || "";
+  registerGroup(groupOpenid);
+  const raw = clean(d.content);
+  if (!raw || !uid) return;
+  try {
+    await handleCommand(raw, groupOpenid, (text) => replyGroup(groupOpenid, text, d.id), uid, false);
+  } catch (e) {
+    log("群指令处理异常: " + e.message);
+  }
+}
+
+async function handleC2C(d) {
+  const uid = (d.author && d.author.user_openid) || d.user_openid;
+  const raw = clean(d.content);
+  if (!raw || !uid) return;
+  try {
+    await handleCommand(raw, "u:" + uid, (text) => replyC2C(uid, text, d.id), uid, true);
+  } catch (e) {
+    log("私聊指令处理异常: " + e.message);
+  }
+}
+
+// ===== 轮询器 =====
+const polling = {};
+
+function startPollers() {
+  // 加入 / 退出 → 私聊发起人（30s）
+  setInterval(async () => {
+    if (polling.notify) return;
+    polling.notify = true;
+    try {
+      const r = await internal("notify-pull", {});
+      if (r.status === 200) {
+        for (const n of (r.data.items || [])) {
+          const text = n.type === "join"
+            ? `【百花同行】「${n.tripLabel}」有新同行者：${n.actorName} 已加入。`
+            : `【百花同行】「${n.tripLabel}」有同行者退出：${n.actorName}。`;
+          const resp = await sendC2CProactive(n.qqOpenid, text);
+          if (resp.status >= 300) log(`通知发送失败(${resp.status}): ${JSON.stringify(resp.data).slice(0, 150)}`);
+        }
+      }
+    } catch (e) { log("notify-pull 异常: " + e.message); }
+    polling.notify = false;
+  }, 30000);
+
+  // 出发前约 1 小时提醒（60s）
+  setInterval(async () => {
+    if (polling.remind) return;
+    polling.remind = true;
+    try {
+      const r = await internal("reminder-due", {});
+      if (r.status === 200) {
+        for (const it of (r.data.items || [])) {
+          const resp = await sendC2CProactive(it.qqOpenid, `【百花同行】提醒：「${it.tripLabel}」约 1 小时后出发，记得与同车同学联系碰头。`);
+          if (resp.status < 300) await internal("reminder-sent", { tripId: it.tripId, openid: it.openid });
+          else log(`提醒发送失败(${resp.status}): ${JSON.stringify(resp.data).slice(0, 150)}`);
+        }
+      }
+    } catch (e) { log("reminder-due 异常: " + e.message); }
+    polling.remind = false;
+  }, 60000);
+
+  // 每日 07:30（UTC+8）群播报，服务端按日去重
+  setInterval(async () => {
+    if (polling.broadcast) return;
+    polling.broadcast = true;
+    try {
+      const now = cstNow();
+      const hhmm = String(now.getUTCHours()).padStart(2, "0") + String(now.getUTCMinutes()).padStart(2, "0");
+      if (hhmm >= "0730" && hhmm < "0900") {
+        const r = await internal("broadcast-today", {});
+        if (r.status === 200 && r.data.content) {
+          for (const g of (r.data.groups || [])) {
+            const resp = await sendGroupProactive(g, r.data.content);
+            if (resp.status >= 300) log(`播报发送失败(${resp.status}): ${JSON.stringify(resp.data).slice(0, 150)}`);
+            await sleep(600);
+          }
+        }
+      }
+    } catch (e) { log("broadcast 异常: " + e.message); }
+    polling.broadcast = false;
+  }, 60000);
 }
 
 // ===== WebSocket 生命周期 =====
@@ -109,7 +546,7 @@ let ws = null;
 let sessionId = "";
 let lastSeq = 0;
 let heartbeatTimer = null;
-let reconnectDelay = 3000; // 指数退避上限 60s；Resume 成功后复位
+let reconnectDelay = 3000;
 
 function send(op, d) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
@@ -144,31 +581,37 @@ function connect(useResume) {
       if (payload.s) lastSeq = payload.s;
 
       switch (payload.op) {
-        case 10: // Hello：服务端要求的心跳周期
+        case 10:
           startHeartbeat(payload.d.heartbeat_interval);
           if (useResume && sessionId) {
-            log("发送 Resume（session=" + sessionId + " seq=" + lastSeq + "）");
+            log(`发送 Resume（session=${sessionId} seq=${lastSeq}）`);
             send(6, { token: `QQBot ${token}`, session_id: sessionId, seq: lastSeq });
           } else {
             send(2, { token: `QQBot ${token}`, intents: CONFIG.intents, shard: [0, 1] });
-            log("发送 Identify（intents=" + CONFIG.intents + "）");
           }
           break;
-        case 0: // Dispatch
+        case 0:
           if (payload.t === "READY") {
             sessionId = payload.d.session_id;
             reconnectDelay = 3000;
-            log(`READY 会话建立（session_id=${sessionId}，用户=${payload.d.user && payload.d.user.user_openid}）`);
+            log("READY 会话建立（session_id=" + sessionId + "）");
           } else if (payload.t === "RESUMED") {
             reconnectDelay = 3000;
             log("RESUMED 会话恢复成功");
-          } else {
-            handleEvent(payload.t, payload.d);
+          } else if (payload.t === "GROUP_AT_MESSAGE_CREATE") {
+            handleGroupMessage(payload.d);
+          } else if (payload.t === "C2C_MESSAGE_CREATE") {
+            handleC2C(payload.d);
+          } else if (payload.t === "GROUP_ADD_ROBOT") {
+            log(`机器人进群 group_openid=${payload.d.group_openid}`);
+            registerGroup(payload.d.group_openid);
+          } else if (payload.t) {
+            log("事件 " + payload.t + " " + JSON.stringify(payload.d).slice(0, 400));
           }
           break;
-        case 11: // Heartbeat ACK
+        case 11:
           break;
-        case 13: // 服务端要求重连（走 Resume）
+        case 13:
           log("服务端要求重连");
           scheduleReconnect(true);
           break;
@@ -183,19 +626,19 @@ function connect(useResume) {
       scheduleReconnect(true);
     });
   }).catch((e) => {
-    log(`连接前置失败（token/网关）: ${describeApiError(e)}`);
+    log(`连接前置失败: ${describeApiError(e)}`);
     scheduleReconnect(false);
   });
 }
 
 // 进程启动
 refreshAccessToken()
-  .then(() => connect(false))
+  .then(() => loadLocations())
+  .then(() => { connect(false); startPollers(); log("启动完成（指令/通知/提醒/播报 就绪）"); })
   .catch((e) => {
     log(`启动失败: ${describeApiError(e)}`);
-    // token 阶段失败也保持重试（可能是瞬时网络问题）
     setTimeout(() => {
-      refreshAccessToken().then(() => connect(false)).catch((e2) => {
+      refreshAccessToken().then(() => { connect(false); startPollers(); }).catch((e2) => {
         log(`二次尝试仍失败: ${describeApiError(e2)}，退出等待 pm2 重启`);
         process.exit(1);
       });
