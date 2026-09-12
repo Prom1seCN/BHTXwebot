@@ -1,7 +1,10 @@
 /**
  * 百花同行 Web (BHTXweb) - 云服务器端
  *
- * 版本：W1.2.0（网站版；QQ 官方机器人为后续接口层）
+ * 版本：v3.0.0（公开使用前的开发版；QQ 官方机器人为后续接口层）
+ *
+ * 版本规则（2026-09-13 定）：公开使用前所有改动统称 v3.0.0，不再逐次升版；
+ * 下方 W1.x 条目为合并进 v3.0.0 的历史细目。
  *
  * 与小程序版（BHTX，已永久下架，仓库冻结归档）的关系：
  *   · 本项目为独立新项目：前端全新（public/ 下的 Vue 3 网站），后端自 BHTX 迁移并清理
@@ -573,7 +576,7 @@ app.post("/api/trips", publishLimiter, verifyToken, requireVerified, async (req,
       }]
     });
 
-    // W1.1.0 联系方式随行程更新（最新优先：与手动修改共用同一份 User.contact）
+    // 联系方式随行程更新（最新优先：与手动修改共用同一份 User.contact）
     if (publisher && publisher.contact !== contact.trim()) {
       publisher.contact = contact.trim();
       try { await publisher.save(); } catch (e) { console.error("[发布] 同步联系方式失败:", e.message); }
@@ -1178,7 +1181,7 @@ app.post("/api/auth/verify", verifyToken, async (req, res) => {
   }
 });
 
-// ===== 网站端登录（W1.0.0 新增）=====
+// ===== 网站端登录 =====
 // 北化邮箱验证码直接登录，不依赖微信。身份锚点 = 邮箱：
 //   · openid 字段的值即邮箱（新项目不再有"微信随机串"这种身份）
 //   · 同邮箱已有用户直接复用，保证一个人只有一条身份记录
@@ -1299,7 +1302,7 @@ app.put("/api/user/display-name", verifyToken, async (req, res) => {
   }
 });
 
-// 联系方式（W1.1.0）：手动修改入口；发布行程时也会自动同步为所填值（均为最新值覆盖）
+// 联系方式：手动修改入口；发布行程时也会自动同步为所填值（均为最新值覆盖）
 app.put("/api/user/contact", verifyToken, async (req, res) => {
   try {
     const { contact } = req.body;
@@ -1428,7 +1431,7 @@ app.get("/api/stats/funnel", async (req, res) => {
   }
 });
 
-// 数据看板（W1.2.0，ADMIN_KEY 鉴权）：漏斗 + 按日时间序列 + 按日撮合健康度，一次取全
+// 数据看板（ADMIN_KEY 鉴权）：漏斗 + 按日时间序列 + 按日撮合健康度，一次取全
 //   daily：关键事件按「天」的次数分布（UTC+8 自然日聚合，与国内日期对齐）
 //   match：窗口内发布的行程中，被加入（曾有乘客）的占比 + 平均「发布→首次加入」时长
 app.get("/api/stats/dashboard", async (req, res) => {
