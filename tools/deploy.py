@@ -76,6 +76,7 @@ def main():
         mkdirs(REMOTE + "/public/vendor")
         files = [
             (LOCAL + "/server.js", REMOTE + "/server.js"),
+            (LOCAL + "/qqbot.js", REMOTE + "/qqbot.js"),
             (LOCAL + "/package.json", REMOTE + "/package.json"),
             (LOCAL + "/package-lock.json", REMOTE + "/package-lock.json"),
             (LOCAL + "/deploy/ecosystem.config.js", REMOTE + "/ecosystem.config.js"),

@@ -23,7 +23,12 @@ echo "== 4. pm2 启动/重载 =="
 if pm2 describe bhtxweb >/dev/null 2>&1; then
   pm2 reload bhtxweb
 else
-  pm2 start ecosystem.config.js
+  pm2 start ecosystem.config.js --only bhtxweb
+fi
+if pm2 describe bhtx-qqbot >/dev/null 2>&1; then
+  pm2 reload bhtx-qqbot
+else
+  pm2 start ecosystem.config.js --only bhtx-qqbot
 fi
 pm2 save
 
