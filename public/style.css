@@ -786,3 +786,7 @@ button, .card, .chip, .link-row, .tab, .uid, .menu-cell { user-select: none; -we
     transition-duration: .01ms !important;
   }
 }
+
+/* ===== 详情页 · 车费面板 ===== */
+.cost-edit { margin-top: 10px; }
+.cost-note { font-size: 11.5px; color: var(--faint); margin: 8px 2px 0; }

@@ -483,7 +483,7 @@ async function handleC2C(d) {
 const polling = {};
 
 function startPollers() {
-  // 加入 / 退出 → 私聊发起人（30s）
+  // 加入 / 退出 / 结算 → 私聊相关成员（30s；文案由 server.js 组装成品）
   setInterval(async () => {
     if (polling.notify) return;
     polling.notify = true;
@@ -491,10 +491,7 @@ function startPollers() {
       const r = await internal("notify-pull", {});
       if (r.status === 200) {
         for (const n of (r.data.items || [])) {
-          const text = n.type === "join"
-            ? `【百花同行】「${n.tripLabel}」有新同行者：${n.actorName} 已加入。`
-            : `【百花同行】「${n.tripLabel}」有同行者退出：${n.actorName}。`;
-          const resp = await sendC2CProactive(n.qqOpenid, text);
+          const resp = await sendC2CProactive(n.qqOpenid, n.text);
           if (resp.status >= 300) log(`通知发送失败(${resp.status}): ${JSON.stringify(resp.data).slice(0, 150)}`);
         }
       }

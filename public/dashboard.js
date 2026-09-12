@@ -165,14 +165,27 @@ function renderMatch(m) {
 function renderFee(fee) {
   document.getElementById('fee').innerHTML =
     '<div class="stat-item">' +
-      '<span class="stat-label">预估人均</span>' +
-      '<span class="stat-value">' + (fee.avgPerPerson == null ? '—' : fee.avgPerPerson + '<span class="unit">元</span>') + '</span>' +
+      '<span class="stat-label">总车费 · 实际填写</span>' +
+      '<span class="stat-value">' + (fee.totalActual ? fee.totalActual + '<span class="unit">元</span>' : '—') + '</span>' +
     '</div>' +
     '<div class="stat-item">' +
-      '<span class="stat-label">实际填写均值</span>' +
-      '<span class="stat-value">' + (fee.actualAvg == null ? '—' : fee.actualAvg + '<span class="unit">元</span>') + '</span>' +
+      '<span class="stat-label">总车费 · 含估算</span>' +
+      '<span class="stat-value">' + (fee.totalEstimated ? fee.totalEstimated + '<span class="unit">元</span>' : '—') + '</span>' +
     '</div>' +
-    '<div class="stat-hint">样本 ' + fee.samples + ' 个，其中实际填写 ' + fee.actualSamples + ' 个（未填的按路线预估中值估算）</div>';
+    '<div class="stat-item">' +
+      '<span class="stat-label">实际填写占比</span>' +
+      '<span class="stat-value">' + fee.fillRate + '<span class="unit">%</span></span>' +
+    '</div>' +
+    '<div class="stat-item">' +
+      '<span class="stat-label">人均 · 预估 / 实际均值</span>' +
+      '<span class="stat-value">' +
+        (fee.avgPerPerson == null ? '—' : fee.avgPerPerson) +
+        '<span class="unit">/</span>' +
+        (fee.actualAvg == null ? '—' : fee.actualAvg) +
+        '<span class="unit">元</span>' +
+      '</span>' +
+    '</div>' +
+    '<div class="stat-hint">估算口径：未填实际车费的行程按路线预估区间中值计入；样本 ' + fee.samples + ' 个，其中实际填写 ' + fee.actualSamples + ' 个</div>';
 }
 
 /* ===== 交互 ===== */

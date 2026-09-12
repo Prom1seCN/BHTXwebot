@@ -37,7 +37,9 @@ function makeTrips() {
     {
       _id: 'demo1', from: '北化北区', to: '昌平西山口', date: dayStr(0), time: '16:30',
       status: 'active', capacity: 4, headcount: 1, remark: '去地铁站，可带一个箱子',
-      tripType: 'scheduled', isFull: false, createdAt: new Date().toISOString()
+      tripType: 'scheduled', isFull: false, createdAt: new Date().toISOString(),
+      actualCost: 12,
+      costInfo: { range: [10, 16], estPerPerson: [5, 8], actualCost: 12, perPerson: 6 }
     },
     {
       _id: 'demo2', from: '北化北区', to: '北京南站', date: dayStr(0), time: '17:00',
@@ -102,7 +104,7 @@ const server = http.createServer((req, res) => {
 
     if (urlPath === '/api/trips' && req.method === 'GET') return json(res, 200, TRIPS);
     if (urlPath === '/api/trips/my') return json(res, 200, []);
-    if (urlPath === '/api/trips/joined') return json(res, 200, []);
+    if (urlPath === '/api/trips/joined') return json(res, 200, [TRIPS[0]]);
 
     const mMembers = urlPath.match(/^\/api\/trips\/([^/]+)\/members$/);
     if (mMembers) {

@@ -74,6 +74,8 @@ const app = Vue.createApp({
       members: [],
       membersLoading: false,
       isMember: false,
+      statusBusy: false,
+      costInput: '',
 
       // ---- 发布 ----
       form: {
@@ -221,6 +223,11 @@ const app = Vue.createApp({
       if (t.status === 'cancelled') return '已下架';
       if (t.status === 'expired') return '已过期';
       return '预约同行';
+    },
+
+    // 车费填写权限：任何已加入成员（取消的行程除外）
+    canEditCost() {
+      return !!(this.trip && this.isMember && this.trip.status !== 'cancelled');
     }
   },
 
@@ -328,6 +335,7 @@ const app = Vue.createApp({
       try {
         const data = await this.api('/trips/' + id);
         this.trip = normTrip(data);
+        this.costInput = this.trip.actualCost != null ? String(this.trip.actualCost) : '';
         await this.loadMembers();
       } catch (e) {
         this.showToast(e.message || '行程不存在或已结束');
@@ -388,6 +396,58 @@ const app = Vue.createApp({
         await this.loadMembers();
       } catch (e) {
         this.showToast(e.message || '退出失败');
+      }
+    },
+
+    async completeTrip() {
+      if (!window.confirm('确认标记该行程为已完成？')) return;
+      this.statusBusy = true;
+      try {
+        await this.api('/trips/' + this.tripId + '/status', { method: 'PUT', body: { action: 'complete' } });
+        this.showToast('已标记完成');
+        const data = await this.api('/trips/' + this.tripId);
+        this.trip = normTrip(data);
+      } catch (e) {
+        this.showToast(e.message || '操作失败');
+      } finally {
+        this.statusBusy = false;
+      }
+    },
+
+    async cancelTrip() {
+      if (!window.confirm('确认取消该行程？')) return;
+      this.statusBusy = true;
+      try {
+        await this.api('/trips/' + this.tripId + '/status', { method: 'PUT', body: { action: 'cancel' } });
+        this.showToast('已取消');
+        const data = await this.api('/trips/' + this.tripId);
+        this.trip = normTrip(data);
+      } catch (e) {
+        this.showToast(e.message || '操作失败');
+      } finally {
+        this.statusBusy = false;
+      }
+    },
+
+    async saveCost() {
+      const v = String(this.costInput).trim();
+      let payload = '';
+      if (v !== '') {
+        const n = Number(v);
+        if (Number.isNaN(n) || n < 0 || n > 999) return this.showToast('费用需为 0-999 元');
+        payload = n;
+      }
+      this.statusBusy = true;
+      try {
+        await this.api('/trips/' + this.tripId + '/cost', { method: 'PUT', body: { actualCost: payload } });
+        this.showToast('车费已更新');
+        const data = await this.api('/trips/' + this.tripId);
+        this.trip = normTrip(data);
+        this.costInput = this.trip.actualCost != null ? String(this.trip.actualCost) : '';
+      } catch (e) {
+        this.showToast(e.message || '保存失败');
+      } finally {
+        this.statusBusy = false;
       }
     },
 

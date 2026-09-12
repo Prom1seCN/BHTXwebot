@@ -344,11 +344,10 @@ const JoinStat = mongoose.model("JoinStat", joinStatSchema);
 
 // ===== QQ 机器人支撑集合（v3.0.0：通知队列 / 提醒去重 / 群注册）=====
 const qqNotifySchema = new mongoose.Schema({
-  type: { type: String, enum: ["join", "leave"], required: true },
-  organizerOpenid: { type: String, required: true, index: true },
+  type: { type: String, enum: ["join", "leave", "cost"], required: true },
+  tripId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
   actorOpenid: { type: String, default: "" },
   actorName: { type: String, default: "" },
-  tripLabel: { type: String, default: "" },
   sentAt: { type: Date, default: null }
 }, { timestamps: true });
 qqNotifySchema.index({ createdAt: 1 }, { expireAfterSeconds: 7 * 86400 });
@@ -738,14 +737,13 @@ app.post("/api/trips/:id/join", verifyToken, requireVerified, async (req, res) =
     trackEvent("trip_join", updated._id, openid, { fee: getTripPerPersonFee(updated) });
     // 记录加入次数（限流用）
     try { await JoinStat.create({ openid }); } catch (e) {}
-    // QQ 通知入队（qqbot 进程轮询后私聊发起人；发起人未绑定 QQ 时自动跳过）
+    // QQ 通知入队（qqbot 轮询后私聊除操作者外的全体成员）
     try {
       await QQNotify.create({
         type: "join",
-        organizerOpenid: updated.openid,
+        tripId: updated._id,
         actorOpenid: openid,
-        actorName: (user && user.displayName) || "有同学",
-        tripLabel: `${updated.from}→${updated.to} ${updated.date} ${updated.time}`
+        actorName: (user && user.displayName) || "有同学"
       });
     } catch (e) {}
     // 通知发起人有人加入（订阅消息，静默失败不影响主流程）
@@ -867,10 +865,9 @@ app.post("/api/trips/:id/leave", verifyToken, async (req, res) => {
       const actor = await User.findOne({ openid }).select("displayName").lean();
       await QQNotify.create({
         type: "leave",
-        organizerOpenid: trip.openid,
+        tripId: updated._id,
         actorOpenid: openid,
-        actorName: (actor && actor.displayName) || "一位同行者",
-        tripLabel: `${updated.from}→${updated.to} ${updated.date} ${updated.time}`
+        actorName: (actor && actor.displayName) || "一位同行者"
       });
     } catch (e) {}
     res.json({ message: "已退出行程", trip: updated });
@@ -892,8 +889,9 @@ app.put("/api/trips/:id/cost", verifyToken, requireVerified, async (req, res) =>
     if (!trip) {
       return res.status(404).json({ message: "找不到该行程" });
     }
-    if (trip.status === "cancelled" || trip.status === "completed" || trip.status === "expired") {
-      return res.status(400).json({ message: "该行程已结束，无法修改费用" });
+    // 车费在行程结束后仍可填写/修改（结算依据）；仅已取消的行程不可改
+    if (trip.status === "cancelled") {
+      return res.status(400).json({ message: "行程已取消，无法修改费用" });
     }
     // 仅已加入成员（含发起人）可填可编辑
     const isMember = trip.openid === openid || trip.members.some((m) => m.openid === openid && m.status === "joined");
@@ -915,6 +913,11 @@ app.put("/api/trips/:id/cost", verifyToken, requireVerified, async (req, res) =>
     }
     trip.actualCost = Math.round(num * 100) / 100;   // 最多两位小数
     await trip.save();
+
+    // 已完成的行程修改车费 → 重新结算通知（私聊全体成员）
+    if (trip.status === "completed") {
+      try { await QQNotify.create({ type: "cost", tripId: trip._id }); } catch (e) {}
+    }
 
     const memberCount = (trip.headcount || 0) + 1;
     res.json({
@@ -1013,6 +1016,13 @@ app.put("/api/trips/:id/status", verifyToken, async (req, res) => {
     if (trip.status === "completed" || trip.status === "cancelled") {
       return res.status(400).json({ message: "该行程已结束" });
     }
+    // 标记完成须在出发时间之后（未出发前只能取消）
+    if (action === "complete") {
+      const dep = buildTripDateTime(trip);
+      if (!dep || dep.getTime() > Date.now()) {
+        return res.status(400).json({ message: "出发时间未到，无法标记完成" });
+      }
+    }
 
     const newStatus = action === "cancel" ? "cancelled" : "completed";
     if (action === "cancel") {
@@ -1025,6 +1035,11 @@ app.put("/api/trips/:id/status", verifyToken, async (req, res) => {
     }
     trip.status = newStatus;
     await trip.save();
+
+    // 已填实际车费的行程标记完成 → 结算通知入队（私聊全体成员）
+    if (newStatus === "completed" && typeof trip.actualCost === "number" && trip.actualCost > 0) {
+      try { await QQNotify.create({ type: "cost", tripId: trip._id }); } catch (e) {}
+    }
 
     trackEvent(newStatus === "cancelled" ? "trip_cancel" : "trip_complete", trip._id, req.user.openid);
     res.json({ message: newStatus === "cancelled" ? "行程已取消" : "行程已完成", trip });
@@ -1442,28 +1457,34 @@ async function buildFunnel(days) {
   const tripsInWindow = await Trip.find({ createdAt: { $gte: start } })
     .select("from to actualCost headcount");
   let feeSum = 0, feeCount = 0, actualSum = 0, actualCount = 0;
+  let totalActual = 0, totalEstimated = 0, totalTrips = 0;
   for (const t of tripsInWindow) {
     const memberCount = (t.headcount || 0) + 1;
     if (memberCount <= 0) continue;
+    totalTrips++;
+    const range = COST_TABLE[`${t.from}|${t.to}`] || COST_TABLE[`${t.to}|${t.from}`];
     if (typeof t.actualCost === "number" && t.actualCost > 0) {
       const per = t.actualCost / memberCount;
       feeSum += per; feeCount++;
       actualSum += per; actualCount++;
+      totalActual += t.actualCost;
+      totalEstimated += t.actualCost;
       continue;
     }
-    const range = COST_TABLE[`${t.from}|${t.to}`] || COST_TABLE[`${t.to}|${t.from}`];
     if (!range) continue;
     feeSum += (range[0] + range[1]) / 2 / memberCount;
     feeCount++;
+    totalEstimated += (range[0] + range[1]) / 2;
   }
-  const fee = feeCount
-    ? {
-        avgPerPerson: Math.round((feeSum / feeCount) * 10) / 10,
-        samples: feeCount,
-        actualAvg: actualCount ? Math.round((actualSum / actualCount) * 10) / 10 : null,
-        actualSamples: actualCount
-      }
-    : { avgPerPerson: null, samples: 0, actualAvg: null, actualSamples: 0 };
+  const fee = {
+    avgPerPerson: feeCount ? Math.round((feeSum / feeCount) * 10) / 10 : null,
+    samples: feeCount,
+    actualAvg: actualCount ? Math.round((actualSum / actualCount) * 10) / 10 : null,
+    actualSamples: actualCount,
+    totalActual: Math.round(totalActual * 10) / 10,
+    totalEstimated: Math.round(totalEstimated * 10) / 10,
+    fillRate: totalTrips ? Math.round((actualCount / totalTrips) * 100) : 0
+  };
 
   return { start, funnel, fee };
 }
@@ -1689,7 +1710,8 @@ app.post("/api/internal/qq/bind-check", internalGuard, async (req, res) => {
   }
 });
 
-// 通知拉取（qqbot 每 30s 轮询）：at-most-once，失败不重试避免轰炸
+// 通知拉取（qqbot 每 30s 轮询）：at-most-once，失败不重试避免轰炸。
+// 收件人在 pull 时实时解析 = 该行程当前全体成员（除操作者），文案在此组装成品。
 app.post("/api/internal/qq/notify-pull", internalGuard, async (req, res) => {
   try {
     const since = new Date(Date.now() - 30 * 60 * 1000);
@@ -1698,10 +1720,29 @@ app.post("/api/internal/qq/notify-pull", internalGuard, async (req, res) => {
     const items = [];
     for (const n of docs) {
       await QQNotify.updateOne({ _id: n._id }, { sentAt: new Date() });
-      if (n.actorOpenid && n.actorOpenid === n.organizerOpenid) continue;
-      const u = await User.findOne({ openid: n.organizerOpenid }).select("qqOpenId").lean();
-      if (!u || !u.qqOpenId) continue; // 发起人未绑定 QQ：静默跳过（网页无推送，不补偿）
-      items.push({ qqOpenid: u.qqOpenId, type: n.type, tripLabel: n.tripLabel, actorName: n.actorName });
+      const trip = await Trip.findById(n.tripId)
+        .select("from to date time capacity headcount members openid actualCost").lean();
+      if (!trip) continue;
+      const memberOpenids = [...new Set([trip.openid, ...trip.members.filter((m) => m.status === "joined").map((m) => m.openid)])]
+        .filter((o) => o !== n.actorOpenid);
+      if (!memberOpenids.length) continue;
+      const users = await User.find({ openid: { $in: memberOpenids }, qqOpenId: { $nin: ["", null] } })
+        .select("qqOpenId").lean();
+      if (!users.length) continue; // 全员未绑定 QQ：无触达渠道，静默跳过
+
+      const label = `${trip.from}→${trip.to} ${trip.date} ${trip.time}`;
+      const progress = `（当前 ${(trip.headcount || 0) + 1}/${(trip.capacity || 4) - 1}）`;
+      let text;
+      if (n.type === "join") {
+        text = `【百花同行】${n.actorName} 加入了行程「${label}」${progress}。`;
+      } else if (n.type === "leave") {
+        text = `【百花同行】${n.actorName} 退出了行程「${label}」${progress}。`;
+      } else if (n.type === "cost") {
+        if (typeof trip.actualCost !== "number" || trip.actualCost <= 0) continue;
+        const per = Math.ceil((trip.actualCost / ((trip.headcount || 0) + 1)) * 100) / 100;
+        text = `【百花同行】行程「${label}」已完成结算：总车费 ${trip.actualCost} 元，人均 ${per} 元，请向垫付车费的成员支付应付部分。`;
+      } else continue;
+      for (const u of users) items.push({ qqOpenid: u.qqOpenId, text });
     }
     res.json({ items });
   } catch (err) {

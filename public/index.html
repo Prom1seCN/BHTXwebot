@@ -204,6 +204,25 @@
       </section>
 
       <section class="panel">
+        <h3 class="panel-title">车费</h3>
+        <template v-if="trip.costInfo">
+          <div v-if="trip.actualCost != null" class="kv"><span>总车费</span><b>{{ trip.actualCost }} 元</b></div>
+          <div v-if="trip.actualCost != null" class="kv"><span>人均</span><b>{{ trip.costInfo.perPerson }} 元</b></div>
+          <template v-if="trip.actualCost == null">
+            <div class="kv"><span>预估总价</span><b>{{ trip.costInfo.range[0] }} - {{ trip.costInfo.range[1] }} 元</b></div>
+            <div class="kv"><span>预估人均</span><b>{{ trip.costInfo.estPerPerson[0] }} - {{ trip.costInfo.estPerPerson[1] }} 元</b></div>
+          </template>
+        </template>
+        <div v-else class="kv"><span>预估</span><b>该路线暂无预估参考</b></div>
+        <div v-if="canEditCost" class="field-row cost-edit">
+          <input class="input-grow" v-model.trim="costInput" type="number" inputmode="decimal"
+                 min="0" max="999" step="0.01" placeholder="实际总车费（元）">
+          <button class="btn-ghost" :disabled="statusBusy" @click="saveCost">{{ statusBusy ? '保存中' : '保存' }}</button>
+        </div>
+        <p v-if="canEditCost" class="cost-note">实际车费由成员填写，作为成员间分摊结算的依据；预估仅供参考。</p>
+      </section>
+
+      <section class="panel">
         <h3 class="panel-title">同行成员</h3>
         <div v-if="membersLoading" class="state-sm">加载中…</div>
         <ul v-else class="members">
@@ -224,9 +243,15 @@
       </section>
 
       <div class="actions">
-        <button v-if="isMember" class="btn-danger" @click="leaveTrip">退出行程</button>
-        <button v-else-if="trip.isFull" class="btn-disabled" disabled>已满员</button>
-        <button v-else class="btn-primary" @click="joinTrip">加入行程</button>
+        <template v-if="trip.status === 'active' || trip.status === 'full' || trip.status === 'expired'">
+          <template v-if="trip.isOrganizer">
+            <button class="btn-primary" :disabled="statusBusy" @click="completeTrip">标记完成</button>
+            <button class="btn-danger" :disabled="statusBusy" @click="cancelTrip">取消行程</button>
+          </template>
+          <button v-if="isMember && !trip.isOrganizer" class="btn-danger" @click="leaveTrip">退出行程</button>
+          <button v-else-if="!isMember && !trip.isFull" class="btn-primary" @click="joinTrip">加入行程</button>
+          <button v-else-if="!isMember && trip.isFull" class="btn-disabled" disabled>已满员</button>
+        </template>
       </div>
     </template>
   </main>
