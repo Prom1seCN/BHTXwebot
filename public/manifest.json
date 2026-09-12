@@ -1,7 +1,7 @@
 {
-  "name": "百花同行 · 北化公益拼车",
+  "name": "百花同行 · 北化校园拼车",
   "short_name": "百花同行",
-  "description": "专属于北化学子的公益拼车撮合平台。不派车、不抽成、不碰钱。",
+  "description": "北化校园拼车信息撮合平台。不派车、不抽成，永不收取拼车费用。",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
