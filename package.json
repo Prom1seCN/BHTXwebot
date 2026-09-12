@@ -1,6 +1,6 @@
 {
   "name": "bhtx-server",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "private": true,
   "description": "百花同行 BHTXweb 服务（网页版）",
   "main": "server.js",

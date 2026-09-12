@@ -1,7 +1,7 @@
 /**
  * 百花同行 Web (BHTXweb) - 云服务器端
  *
- * 版本：W1.1.0（网站版；QQ 官方机器人为后续接口层）
+ * 版本：W1.2.0（网站版；QQ 官方机器人为后续接口层）
  *
  * 与小程序版（BHTX，已永久下架，仓库冻结归档）的关系：
  *   · 本项目为独立新项目：前端全新（public/ 下的 Vue 3 网站），后端自 BHTX 迁移并清理
@@ -15,6 +15,9 @@
  *           降级逻辑等于全放行，已无意义）；新增用户联系方式（User.contact）：
  *           发布行程自动同步（最新优先）、PUT /api/user/contact 手动修改，
  *           发布/加入行程默认采用已存联系方式
+ * - W1.2.0: 新增 /api/stats/dashboard 数据看板接口（漏斗复用重构为 buildFunnel 共用实现；
+ *           关键事件按 UTC+8 自然日的次数序列；撮合健康度=被加入行程占比 + 平均发布→首次加入时长）；
+ *           前端新增 /dashboard.html 可视化看板（复用主站设计 token，ADMIN_KEY 鉴权）
  */
 
 const express = require("express");
@@ -1362,6 +1365,52 @@ app.get("/api/stats/copy", async (req, res) => {
   }
 });
 
+// 转化漏斗数据（funnel 接口与 dashboard 看板共用，只保留一份实现）
+async function buildFunnel(days) {
+  const start = new Date();
+  start.setDate(start.getDate() - days);
+
+  const events = await AnalyticsEvent.aggregate([
+    { $match: { createdAt: { $gte: start } } },
+    { $group: { _id: { type: "$type", openid: "$openid" } } },
+    { $group: { _id: "$_id.type", uniqueUsers: { $sum: 1 } } }
+  ]);
+  const funnel = {};
+  events.forEach((e) => { funnel[e._id] = e.uniqueUsers; });
+
+  // v2.0.0 人均费用统计 —— 实时从 Trip 聚合（而非埋点快照，用户后填的实际费用才能被统计到）：
+  //   • 行程已填实际费用（actualCost）→ 用实际值 ÷ 当前人数
+  //   • 未填 → 按路线 COST_TABLE 预估区间中值兜底
+  //   • 返回 avgPerPerson（全部样本）+ actualAvg/actualSamples（仅实际填写的样本）
+  const tripsInWindow = await Trip.find({ createdAt: { $gte: start } })
+    .select("from to actualCost headcount");
+  let feeSum = 0, feeCount = 0, actualSum = 0, actualCount = 0;
+  for (const t of tripsInWindow) {
+    const memberCount = (t.headcount || 0) + 1;
+    if (memberCount <= 0) continue;
+    if (typeof t.actualCost === "number" && t.actualCost > 0) {
+      const per = t.actualCost / memberCount;
+      feeSum += per; feeCount++;
+      actualSum += per; actualCount++;
+      continue;
+    }
+    const range = COST_TABLE[`${t.from}|${t.to}`] || COST_TABLE[`${t.to}|${t.from}`];
+    if (!range) continue;
+    feeSum += (range[0] + range[1]) / 2 / memberCount;
+    feeCount++;
+  }
+  const fee = feeCount
+    ? {
+        avgPerPerson: Math.round((feeSum / feeCount) * 10) / 10,
+        samples: feeCount,
+        actualAvg: actualCount ? Math.round((actualSum / actualCount) * 10) / 10 : null,
+        actualSamples: actualCount
+      }
+    : { avgPerPerson: null, samples: 0, actualAvg: null, actualSamples: 0 };
+
+  return { start, funnel, fee };
+}
+
 // 转化漏斗（V1.3，ADMIN_KEY 鉴权）
 app.get("/api/stats/funnel", async (req, res) => {
   const adminKey = req.headers["x-admin-key"] || req.query.key;
@@ -1371,48 +1420,7 @@ app.get("/api/stats/funnel", async (req, res) => {
 
   try {
     const days = Math.min(parseInt(req.query.days, 10) || 30, 90);
-    const start = new Date();
-    start.setDate(start.getDate() - days);
-
-    const events = await AnalyticsEvent.aggregate([
-      { $match: { createdAt: { $gte: start } } },
-      { $group: { _id: { type: "$type", openid: "$openid" } } },
-      { $group: { _id: "$_id.type", uniqueUsers: { $sum: 1 } } }
-    ]);
-
-    const funnel = {};
-    events.forEach((e) => { funnel[e._id] = e.uniqueUsers; });
-
-    // v2.0.0 人均费用统计 —— 实时从 Trip 聚合（而非埋点快照，用户后填的实际费用才能被统计到）：
-    //   • 行程已填实际费用（actualCost）→ 用实际值 ÷ 当前人数
-    //   • 未填 → 按路线 COST_TABLE 预估区间中值兜底
-    //   • 返回 avgPerPerson（全部样本）+ actualAvg/actualSamples（仅实际填写的样本）
-    const tripsInWindow = await Trip.find({ createdAt: { $gte: start } })
-      .select("from to actualCost headcount");
-    let feeSum = 0, feeCount = 0, actualSum = 0, actualCount = 0;
-    for (const t of tripsInWindow) {
-      const memberCount = (t.headcount || 0) + 1;
-      if (memberCount <= 0) continue;
-      if (typeof t.actualCost === "number" && t.actualCost > 0) {
-        const per = t.actualCost / memberCount;
-        feeSum += per; feeCount++;
-        actualSum += per; actualCount++;
-        continue;
-      }
-      const range = COST_TABLE[`${t.from}|${t.to}`] || COST_TABLE[`${t.to}|${t.from}`];
-      if (!range) continue;
-      feeSum += (range[0] + range[1]) / 2 / memberCount;
-      feeCount++;
-    }
-    const fee = feeCount
-      ? {
-          avgPerPerson: Math.round((feeSum / feeCount) * 10) / 10,
-          samples: feeCount,
-          actualAvg: actualCount ? Math.round((actualSum / actualCount) * 10) / 10 : null,
-          actualSamples: actualCount
-        }
-      : { avgPerPerson: null, samples: 0, actualAvg: null, actualSamples: 0 };
-
+    const { funnel, fee } = await buildFunnel(days);
     res.json({ days, funnel, fee });
   } catch (err) {
     console.error("获取漏斗失败:", err);
@@ -1420,6 +1428,72 @@ app.get("/api/stats/funnel", async (req, res) => {
   }
 });
 
+// 数据看板（W1.2.0，ADMIN_KEY 鉴权）：漏斗 + 按日时间序列 + 按日撮合健康度，一次取全
+//   daily：关键事件按「天」的次数分布（UTC+8 自然日聚合，与国内日期对齐）
+//   match：窗口内发布的行程中，被加入（曾有乘客）的占比 + 平均「发布→首次加入」时长
+app.get("/api/stats/dashboard", async (req, res) => {
+  const adminKey = req.headers["x-admin-key"] || req.query.key;
+  if (!adminKey || adminKey !== process.env.ADMIN_KEY) {
+    return res.status(403).json({ message: "无权访问" });
+  }
+
+  try {
+    const days = Math.min(parseInt(req.query.days, 10) || 30, 90);
+    const { start, funnel, fee } = await buildFunnel(days);
+
+    const DAILY_TYPES = ["auth_code_sent", "user_login", "trip_publish", "trip_join", "contact_copy", "trip_leave"];
+    const rows = await AnalyticsEvent.aggregate([
+      { $match: { createdAt: { $gte: start }, type: { $in: DAILY_TYPES } } },
+      { $group: {
+        _id: {
+          type: "$type",
+          day: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt", timezone: "+08:00" } }
+        },
+        count: { $sum: 1 }
+      } }
+    ]);
+    const byKey = {};
+    rows.forEach((r) => { byKey[r._id.day + "|" + r._id.type] = r.count; });
+
+    // 零填充：窗口内每天都有一条记录（近端为今天，远端最早一天可能不满 24h）
+    const daily = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 86400000 + 8 * 3600 * 1000).toISOString().slice(0, 10);
+      const item = { date: d };
+      DAILY_TYPES.forEach((t) => { item[t] = byKey[d + "|" + t] || 0; });
+      daily.push(item);
+    }
+
+    // 撮合健康度：曾有乘客记录（含已退出的）即视为"被加入"；时长 = 首个乘客 joinedAt - 行程创建时间
+    const trips = await Trip.find({ createdAt: { $gte: start } }).select("createdAt members").lean();
+    let withJoiner = 0, durSum = 0, durSamples = 0;
+    for (const t of trips) {
+      const joined = (t.members || []).filter((m) => m.role === "passenger" && m.joinedAt);
+      if (joined.length) {
+        withJoiner++;
+        const first = Math.min(...joined.map((m) => new Date(m.joinedAt).getTime()));
+        durSum += first - new Date(t.createdAt).getTime();
+        durSamples++;
+      }
+    }
+    const match = {
+      published: trips.length,
+      withJoiner,
+      joinRate: trips.length ? Math.round((withJoiner / trips.length) * 1000) / 10 : 0,
+      avgFirstJoinMs: durSamples ? Math.round(durSum / durSamples) : null,
+      samples: durSamples
+    };
+
+    res.json({ days, funnel, fee, daily, match, generatedAt: new Date().toISOString() });
+  } catch (err) {
+    console.error("获取看板数据失败:", err);
+    res.status(500).json({ message: "服务器错误" });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`);
 });
+
+// 数据看板短链接（静态页在 /dashboard.html）
+app.get("/dashboard", (req, res) => res.redirect("/dashboard.html"));
