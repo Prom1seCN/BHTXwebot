@@ -480,6 +480,13 @@ input, select { font-family: inherit; font-size: inherit; }
 .about-brand { display: flex; align-items: center; gap: 15px; padding: 8px 2px 22px; }
 .about-logo { width: 68px; height: 68px; flex: 0 0 68px; object-fit: contain; }
 .about-brand .brand-wordmark { height: 23px; }
+
+/* ===== 关于页 · 更新日志 ===== */
+.cl-item + .cl-item { margin-top: 18px; }
+.cl-ver { font-size: 15px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.cl-date { font-size: 12px; font-weight: 500; color: var(--faint); margin-left: 8px; }
+.cl-list { margin: 8px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+.cl-list li { font-size: 13px; color: var(--muted); line-height: 1.6; }
 .site-foot {
   position: relative; z-index: 1;
   margin: 0; padding: 20px 16px calc(24px + env(safe-area-inset-bottom));
