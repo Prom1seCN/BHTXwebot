@@ -36,25 +36,25 @@ function makeTrips() {
   return [
     {
       _id: 'demo1', tripNo: '260913001', from: '北化北区', to: '昌平西山口', date: dayStr(0), time: '16:30',
-      status: 'active', capacity: 4, headcount: 1, remark: '去地铁站，可带一个箱子',
+      status: 'active', capacity: 3, headcount: 1, remark: '去地铁站，可带一个箱子',
       tripType: 'scheduled', isFull: false, createdAt: new Date().toISOString(),
       actualCost: 12,
       costInfo: { range: [10, 16], estPerPerson: [5, 8], actualCost: 12, perPerson: 6 }
     },
     {
       _id: 'demo2', tripNo: '260913002', from: '北化北区', to: '北京南站', date: dayStr(0), time: '17:00',
-      status: 'active', capacity: 5, headcount: 1, remark: '',
+      status: 'active', capacity: 4, headcount: 1, remark: '',
       tripType: 'scheduled', isFull: false, createdAt: new Date().toISOString()
     },
     {
       _id: 'demo3', from: '昌平西山口', to: '北化北区', date: dayStr(1), time: '19:30',
-      status: 'active', capacity: 3, headcount: 0, remark: '周日返校',
+      status: 'active', capacity: 2, headcount: 0, remark: '周日返校',
       tripType: 'scheduled', isFull: false, createdAt: new Date().toISOString()
     },
     {
-      // 满员：headcount 达到 capacity-1（与后端加入条件一致），显示 3/3
+      // 满员：headcount 达到 capacity（乘客数，与后端加入条件一致），显示 3/3
       _id: 'demo4', from: '北化北区', to: '首都机场', date: dayStr(2), time: '07:00',
-      status: 'full', capacity: 4, headcount: 2, remark: '早班机',
+      status: 'full', capacity: 3, headcount: 2, remark: '早班机',
       tripType: 'scheduled', isFull: true, createdAt: new Date().toISOString()
     }
   ];

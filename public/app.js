@@ -97,7 +97,7 @@ const app = Vue.createApp({
       // ---- 发布 ----
       form: {
         from: '', fromCustom: '', to: '', toCustom: '',
-        date: '', time: '', seats: 1, contact: '', remark: ''
+        date: '', time: '', seats: 2, contact: '', remark: ''
       },
       publishing: false,
       publishError: '',
@@ -512,7 +512,7 @@ const app = Vue.createApp({
             from: from, to: to, date: f.date, time: f.time,
             contact: f.contact,
             remark: f.remark || undefined,
-            capacity: [3, 4, 5][f.seats - 1] || 4
+            capacity: [2, 3, 4][f.seats - 1] || 3
           }
         });
         localStorage.setItem(LS.contact, f.contact);
@@ -529,7 +529,7 @@ const app = Vue.createApp({
     resetForm() {
       this.form = {
         from: '', fromCustom: '', to: '', toCustom: '',
-        date: dateStr(0), time: '', seats: 1,
+        date: dateStr(0), time: '', seats: 2,
         contact: localStorage.getItem(LS.contact) || '',
         remark: ''
       };

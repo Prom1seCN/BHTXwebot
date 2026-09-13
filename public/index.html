@@ -163,9 +163,9 @@
           <div class="card-foot">
             <span class="seats">
               <span class="pips">
-                <i v-for="n in ((t.capacity || 4) - 1)" :key="n" :class="{on: n <= (t.headcount || 0) + 1}"></i>
+                <i v-for="n in (t.capacity || 3)" :key="n" :class="{on: n <= (t.headcount || 0) + 1}"></i>
               </span>
-              {{ (t.headcount || 0) + 1 }}/{{ (t.capacity || 4) - 1 }} 人
+              {{ (t.headcount || 0) + 1 }}/{{ t.capacity || 3 }} 人
             </span>
             <span class="card-no" v-if="t.tripNo">#{{ t.tripNo }}</span>
             <span class="more">查看 ›</span>
@@ -206,7 +206,7 @@
         </div>
         <div class="kv"><span>出发日期</span><b>{{ trip.date }}</b></div>
         <div class="kv"><span>出发时间</span><b>{{ trip.time }}</b></div>
-        <div class="kv"><span>已有同行</span><b>{{ (trip.headcount || 0) + 1 }} / {{ (trip.capacity || 4) - 1 }} 人</b></div>
+        <div class="kv"><span>已有同行</span><b>{{ (trip.headcount || 0) + 1 }} / {{ trip.capacity || 3 }} 人</b></div>
         <div v-if="trip.remark" class="kv"><span>备注</span><b>{{ trip.remark }}</b></div>
       </section>
 
@@ -310,12 +310,13 @@
       </div>
 
       <label class="field">
-        <span class="label">再拼人数</span>
+        <span class="label">乘客人数</span>
         <div class="chips">
           <button v-for="n in [1,2,3]" :key="n"
                   class="chip" :class="{on: form.seats===n}"
-                  @click="form.seats=n">再拼 {{ n }} 人</button>
+                  @click="form.seats=n">{{ n + 1 }} 人</button>
         </div>
+        <span class="field-note">你占 1 位，还可加入 {{ form.seats }} 位同学</span>
       </label>
 
       <label class="field">
@@ -360,9 +361,9 @@
         <div class="card-foot">
           <span class="seats">
             <span class="pips">
-              <i v-for="n in ((t.capacity || 4) - 1)" :key="n" :class="{on: n <= (t.headcount || 0) + 1}"></i>
+              <i v-for="n in (t.capacity || 3)" :key="n" :class="{on: n <= (t.headcount || 0) + 1}"></i>
             </span>
-            {{ (t.headcount || 0) + 1 }}/{{ (t.capacity || 4) - 1 }} 人
+            {{ (t.headcount || 0) + 1 }}/{{ t.capacity || 3 }} 人
           </span>
           <span class="card-no" v-if="t.tripNo">#{{ t.tripNo }}</span>
           <span class="more">查看 ›</span>
@@ -385,9 +386,9 @@
         <div class="card-foot">
           <span class="seats">
             <span class="pips">
-              <i v-for="n in ((t.capacity || 4) - 1)" :key="n" :class="{on: n <= (t.headcount || 0) + 1}"></i>
+              <i v-for="n in (t.capacity || 3)" :key="n" :class="{on: n <= (t.headcount || 0) + 1}"></i>
             </span>
-            {{ (t.headcount || 0) + 1 }}/{{ (t.capacity || 4) - 1 }} 人
+            {{ (t.headcount || 0) + 1 }}/{{ t.capacity || 3 }} 人
           </span>
           <span class="card-no" v-if="t.tripNo">#{{ t.tripNo }}</span>
           <span class="more">查看 ›</span>

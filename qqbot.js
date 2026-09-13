@@ -493,7 +493,7 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
     const route = [].concat(q.fromList || [], q.toList || [], q.anyList || []).filter(Boolean).join("→");
     return reply(
       `【${scope}${route ? " · " + route : ""}】共 ${list.length} 班\n` +
-      list.map((x, i) => `${i + 1}. ${x.tripNo ? "#" + x.tripNo : ""} ${fmtCN(x.date)} ${x.time} ${x.from}→${x.to}，${(x.headcount || 0) + 1}/${(x.capacity || 4) - 1} 人`).join("\n") +
+      list.map((x, i) => `${i + 1}. ${x.tripNo ? "#" + x.tripNo : ""} ${fmtCN(x.date)} ${x.time} ${x.from}→${x.to}，${(x.headcount || 0) + 1}/${x.capacity || 3} 人`).join("\n") +
       "\n回复「加入 序号」或「加入 行程号」上车"
     );
   }
@@ -506,7 +506,7 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
     const org = [], joined = [];
     trips.forEach((x) => (x.isOrganizer ? org : joined).push(x));
     s.myJoined = joined;
-    const f = (x) => `${x.tripNo ? "#" + x.tripNo + " " : ""}${fmtCN(x.date)} ${x.time} ${x.from} → ${x.to}，${(x.headcount || 0) + 1}/${(x.capacity || 4) - 1} 人${x.isFull ? "，已满" : ""}`;
+    const f = (x) => `${x.tripNo ? "#" + x.tripNo + " " : ""}${fmtCN(x.date)} ${x.time} ${x.from} → ${x.to}，${(x.headcount || 0) + 1}/${x.capacity || 3} 人${x.isFull ? "，已满" : ""}`;
     let out = "";
     if (org.length) out += "我发起的：\n" + org.map((x, i) => `${i + 1}. ${f(x)}`).join("\n") + "\n";
     if (joined.length) out += "我加入的：\n" + joined.map((x, i) => `${i + 1}. ${f(x)}`).join("\n");
@@ -552,7 +552,7 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
     if (r.status !== 200) return reply(apiMsg(r));
     const x = (r.data && r.data.trip) || trip;
     return reply(
-      `已加入 ${x.tripNo ? "#" + x.tripNo + " " : ""}${fmtCN(x.date)} ${x.time} ${x.from} → ${x.to}，当前 ${(x.headcount || 0) + 1}/${(x.capacity || 4) - 1} 人。\n` +
+      `已加入 ${x.tripNo ? "#" + x.tripNo + " " : ""}${fmtCN(x.date)} ${x.time} ${x.from} → ${x.to}，当前 ${(x.headcount || 0) + 1}/${x.capacity || 3} 人。\n` +
       "同车成员联系方式在网页详情页互看，出发前 1 小时我将提醒你。"
     );
   }

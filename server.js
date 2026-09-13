@@ -219,6 +219,8 @@ const tripSchema = new mongoose.Schema({
   },
   remark: { type: String, default: "" },
   // —— 拼车撮合字段（V1.3 新增）——
+  // 容量口径（v3.0.0 定稿）：capacity = 乘客容量（不含司机）。3 = 发起者+2（发布后 1/3，加入 2 人满 3/3）；
+  // 4 = 发起者+3（1/4，满 4/4）。当前乘客 x = headcount + 1（发起者占 1 位）；满员 = headcount 达 capacity - 1。
   capacity: { type: Number, default: 4 },    // 总席位（司机1 + 同学数），拼2个=4，拼1个=3
   headcount: { type: Number, default: 0 },   // 已加入同行者数（不含发起人）
   organizerRole: {
@@ -424,7 +426,7 @@ async function sendJoinNotify(organizerOpenid, trip, joinerName) {
     if (!token) return;
 
     // 席位总数（不含发起人）
-    const totalSeats = (trip.capacity || 4) - 1;
+    const totalSeats = trip.capacity || 3;
 
     await axios.post(
       `https://api.weixin.qq.com/cgi-bin/message/subscribe/send?access_token=${token}`,
@@ -472,7 +474,7 @@ const COST_TABLE = {
 function buildFeeHint(from, to, capacity) {
   const range = COST_TABLE[`${from}|${to}`] || COST_TABLE[`${to}|${from}`];
   if (!range) return "";
-  const total = capacity - 1; // 可分摊人数（不含司机位）
+  const total = capacity; // 可分摊人数（即乘客数）
   const perMin = Math.ceil(range[0] / total);
   const perMax = Math.ceil(range[1] / total);
   return `该路线预估价约${range[0]}-${range[1]}元，按${total}人约${perMin}-${perMax}元/人`;
@@ -612,7 +614,7 @@ app.post("/api/trips", publishLimiter, verifyToken, requireVerified, async (req,
       return res.status(400).json({ message: "你同时最多只能有2个进行中的行程，请先退出其他行程" });
     }
 
-    const finalCapacity = Math.min(Math.max(parseInt(capacity, 10) || 4, 3), 5); // 3(再拼1) / 4(再拼2) / 5(再拼3)
+    const finalCapacity = Math.min(Math.max(parseInt(capacity, 10) || 3, 2), 4); // 乘客数：2(再拼1) / 3(再拼2,默认) / 4(再拼3)
     const finalRole = organizerRole === "passenger" ? "passenger" : "organizer";
     const feeHint = buildFeeHint(from, to, finalCapacity);
 
@@ -678,9 +680,10 @@ app.post("/api/trips", publishLimiter, verifyToken, requireVerified, async (req,
           time: t.time,
           from: t.from,
           to: t.to,
-          seatsLeft: (t.capacity || 4) - 1 - (t.headcount || 0)
+          cur: (t.headcount || 0) + 1,
+          total: t.capacity || 3
         }))
-        .filter((r) => r.seatsLeft > 0);
+        .filter((r) => r.cur < r.total);
     } catch (e) {
       console.error("[发布] 同路推荐失败:", e.message);
     }
@@ -1835,7 +1838,7 @@ app.post("/api/internal/qq/notify-pull", internalGuard, async (req, res) => {
       if (!users.length) continue; // 全员未绑定 QQ：无触达渠道，静默跳过
 
       const label = `${trip.tripNo ? "#" + trip.tripNo + " · " : ""}${cnDate(trip.date)} ${trip.time} ${trip.from} → ${trip.to}`;
-      const progress = `，当前 ${(trip.headcount || 0) + 1}/${(trip.capacity || 4) - 1} 人`;
+      const progress = `，当前 ${(trip.headcount || 0) + 1}/${trip.capacity || 3} 人`;
       let text;
       if (n.type === "join") {
         text = `【百花同行】${n.actorName} 加入行程 ${label}${progress}。`;
@@ -2026,8 +2029,7 @@ app.post("/api/internal/qq/broadcast-today", internalGuard, async (req, res) => 
     let content = null;
     if (upcoming.length) {
       const lines = upcoming.map((t, i) => {
-        const left = (t.capacity || 4) - 1 - (t.headcount || 0);
-        return `${i + 1}. #${t.tripNo || ""} ${t.time} ${t.from} → ${t.to}，${(t.headcount || 0) + 1}/${(t.capacity || 4) - 1} 人`;
+        return `${i + 1}. #${t.tripNo || ""} ${t.time} ${t.from} → ${t.to}，${(t.headcount || 0) + 1}/${t.capacity || 3} 人`;
       });
       const head = openid ? `你今日的行程 ${upcoming.length} 班` : `今日出行 ${upcoming.length} 班`;
       content = `【百花同行 · ${head}】\n${lines.join("\n")}\n上车请@我「加入 行程号」；发布行程直接@我说时间和路线。\n网页版：bhtx.prom1se.cn`;
