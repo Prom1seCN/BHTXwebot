@@ -77,6 +77,7 @@ const app = Vue.createApp({
       isMember: false,
       statusBusy: false,
       costInput: '',
+      isMemberView: false,
 
       // ---- 共建者名录 ----
       showContributors: false,
@@ -354,6 +355,7 @@ const app = Vue.createApp({
       try {
         const data = await this.api('/trips/' + this.tripId + '/members');
         this.members = (data && data.members) || [];
+        this.isMemberView = !!(data && data.contact !== undefined);
 
         if (this.isLoggedIn) {
           const joined = await this.api('/trips/joined').catch(() => []);

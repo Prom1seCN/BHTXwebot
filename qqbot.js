@@ -498,7 +498,13 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
       if (!trip) return reply(`序号超出范围，可用 1 至 ${list.length}`);
       trip = Object.assign({}, trip, { id: trip.id || trip._id });
     }
+    const who = await whoami(uid);
+    if (!who || !who.bound) return reply(BIND_HINT);
+    if (!who.contactSet) return reply("请先私聊我发送「联系方式 微信号」，设置后再加入行程。");
     const r = await proxy(uid, "POST", `/trips/${trip.id}/join`, {});
+    if (r.status === 400 && r.data && r.data.message === "请先设置联系方式后再加入行程") {
+      return reply("请先私聊我发送「联系方式 微信号」，设置后再加入行程。");
+    }
     if (r.status !== 200) return reply(apiMsg(r));
     const x = (r.data && r.data.trip) || trip;
     return reply(

@@ -243,6 +243,7 @@
               <div v-if="m.contact" class="member-contact" @click="copy(m.contact, tripId)">
                 {{ m.contact }} <span class="copy">复制</span>
               </div>
+              <div v-else-if="isMemberView" class="member-contact muted">未填写</div>
               <div v-else class="member-contact muted">加入后可见</div>
             </div>
           </li>

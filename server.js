@@ -768,6 +768,10 @@ app.post("/api/trips/:id/join", verifyToken, requireVerified, async (req, res) =
     const memberContact = (contact && typeof contact === "string" && contact.trim())
       ? contact.trim()
       : (user && user.contact ? user.contact : "");
+    // 联系方式是撮合闭环的必要信息：网页与机器人都必须先有联系方式才能加入
+    if (!memberContact) {
+      return res.status(400).json({ message: "请先设置联系方式后再加入行程" });
+    }
     const updated = await Trip.findOneAndUpdate(
       {
         _id: tripId,
