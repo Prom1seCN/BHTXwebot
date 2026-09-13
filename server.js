@@ -632,6 +632,38 @@ app.post("/api/trips", publishLimiter, verifyToken, requireVerified, async (req,
     }
     if (!trip) return res.status(500).json({ message: "发布失败，请重试" });
 
+    // 同路推荐：到达地点相同或相近（组内互为相近）且出发时间相差 1 小时内的其他进行中行程
+    let recommendations = [];
+    try {
+      const NEARBY = [
+        ["乐多港万达", "昌平西山口"],
+        ["昌平悦荟", "昌平区医院", "昌平站"]
+      ];
+      const near = (a, b) => a === b || NEARBY.some((g) => g.includes(a) && g.includes(b));
+      const depMin = (t) => {
+        const p = String(t.time).split(":");
+        return (parseInt(p[0], 10) || 0) * 60 + (parseInt(p[1], 10) || 0);
+      };
+      const myMin = depMin(trip);
+      const others = await Trip.find({
+        date, status: "active", openid: { $ne: openid }, _id: { $ne: trip._id }
+      }).select("tripNo time from to capacity headcount").lean();
+      recommendations = others
+        .filter((t) => near(t.to, to) && Math.abs(depMin(t) - myMin) <= 60)
+        .sort((a, b) => depMin(a) - depMin(b))
+        .slice(0, 3)
+        .map((t) => ({
+          tripNo: t.tripNo,
+          time: t.time,
+          from: t.from,
+          to: t.to,
+          seatsLeft: (t.capacity || 4) - 1 - (t.headcount || 0)
+        }))
+        .filter((r) => r.seatsLeft > 0);
+    } catch (e) {
+      console.error("[发布] 同路推荐失败:", e.message);
+    }
+
     // 联系方式随行程更新（最新优先：与手动修改共用同一份 User.contact）
     if (publisher && publisher.contact !== contact.trim()) {
       publisher.contact = contact.trim();
@@ -641,7 +673,7 @@ app.post("/api/trips", publishLimiter, verifyToken, requireVerified, async (req,
     trackEvent("trip_publish", trip._id, openid, { from, to, fee: getTripPerPersonFee(trip) });
     // v2.0.0 发布成功也计入限流（加入+发布统一 1h5 次）
     try { await JoinStat.create({ openid }); } catch (e) {}
-    res.json({ message: "发布成功", trip });
+    res.json({ message: "发布成功", trip, recommendations });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "发布失败" });

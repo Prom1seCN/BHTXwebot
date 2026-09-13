@@ -388,10 +388,14 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
     const r = await proxy(uid, "POST", "/trips", { from: p.from, to: p.to, date: p.date, time: p.time, capacity: 4 });
     if (r.status !== 200) return reply(apiMsg(r));
     const trip = (r.data && r.data.trip) || {};
-    return reply(
-      `已发布 ${trip.tripNo ? "#" + trip.tripNo : ""}\n${fmtCN(trip.date)} ${trip.time} ${trip.from} → ${trip.to}\n` +
-      `默认再拼 2 人。有新同行者时我将私聊通知你。`
-    );
+    let out = `已发布 ${trip.tripNo ? "#" + trip.tripNo : ""}\n${fmtCN(trip.date)} ${trip.time} ${trip.from} → ${trip.to}\n默认再拼 2 人。有新同行者时我将私聊通知你。`;
+    const recs = r.data.recommendations || [];
+    if (recs.length) {
+      out += "\n\n同路行程推荐：\n" +
+        recs.map((x, i) => `${i + 1}. #${x.tripNo} ${x.time} ${x.from} → ${x.to}，余 ${x.seatsLeft} 位`).join("\n") +
+        "\n回复「加入 行程号」可直接加入";
+    }
+    return reply(out);
   }
 
   if (/^取消$/.test(t)) {
