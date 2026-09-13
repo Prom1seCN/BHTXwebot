@@ -86,6 +86,7 @@ const app = Vue.createApp({
 
       // ---- 赞助 ----
       sponsorOpen: false,
+      sponsorTs: 0,
       sponsorFormOpen: false,
       sponsorApplied: false,
       applyName: '',
@@ -782,6 +783,11 @@ const app = Vue.createApp({
     },
 
     openExternal(url) { window.open(url, '_blank'); },
+
+    openSponsor() {
+      this.sponsorTs = Date.now();
+      this.sponsorOpen = true;
+    },
 
     async toggleContributors() {
       this.showContributors = !this.showContributors;

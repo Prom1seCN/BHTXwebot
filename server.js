@@ -37,13 +37,7 @@ app.set('trust proxy', 1);
 
 const PORT = process.env.PORT || 3000;
 const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017/bhtxweb"; // 新库；小程序时期的 bhtx 库保留为历史存档，不复用
-const APP_ID = "wx09391efa82a43eaa";
-const APP_SECRET = process.env.WX_APP_SECRET;
 const JWT_SECRET = process.env.JWT_SECRET;
-// 订阅消息模板 ID（在微信公众平台-订阅消息-选用模板后填入，如留空则加入通知不生效）
-const SUBSCRIBE_TEMPLATE_ID = process.env.SUBSCRIBE_TEMPLATE_ID || "";
-
-if (!APP_SECRET) console.error("[ERROR] 缺少环境变量 WX_APP_SECRET，微信 access_token 将无法获取，请配置 .env 文件");
 if (!JWT_SECRET) console.error("[ERROR] 缺少环境变量 JWT_SECRET，登录鉴权将失效（可用 `openssl rand -hex 32` 生成），请配置 .env 文件");
 
 app.use(cors());
@@ -167,35 +161,6 @@ mongoose
   .then(() => console.log("MongoDB connected:", MONGO_URI))
   .catch((err) => console.error("MongoDB connection error:", err));
 
-// ===== 微信 access_token（仅订阅消息通知 sendJoinNotify 使用；内容审查已随小程序停用移除）=====
-
-let _accessToken = null;
-let _tokenExpireAt = 0;
-
-async function getAccessToken() {
-  if (_accessToken && Date.now() < _tokenExpireAt) {
-    return _accessToken;
-  }
-
-  try {
-    const res = await axios.get(
-      `https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=${APP_ID}&secret=${APP_SECRET}`
-    );
-
-    if (res.data.access_token) {
-      _accessToken = res.data.access_token;
-      _tokenExpireAt = Date.now() + (res.data.expires_in - 300) * 1000;
-      return _accessToken;
-    }
-
-    console.error("[订阅消息] 获取access_token失败:", JSON.stringify(res.data));
-    return null;
-  } catch (err) {
-    console.error("[订阅消息] 获取access_token异常:", err.message);
-    return null;
-  }
-}
-
 // ===== 数据模型 =====
 
 const tripSchema = new mongoose.Schema({
@@ -297,25 +262,6 @@ userSchema.index(
 
 const User = mongoose.model("User", userSchema);
 
-const contactCopySchema = new mongoose.Schema({
-  openid: { type: String, required: true },
-  tripId: { type: String, required: true },
-  copiedAt: { type: Date, default: Date.now }
-});
-
-contactCopySchema.index({ openid: 1, copiedAt: 1 }, { expireAfterSeconds: 7200 });
-
-const ContactCopy = mongoose.model("ContactCopy", contactCopySchema);
-
-const copyStatSchema = new mongoose.Schema({
-  date: { type: String, required: true },
-  count: { type: Number, default: 0 }
-});
-
-copyStatSchema.index({ date: 1 }, { unique: true });
-
-const CopyStat = mongoose.model("CopyStat", copyStatSchema);
-
 // ===== 埋点事件（V1.3 新增）=====
 const analyticsEventSchema = new mongoose.Schema({
   type: { type: String, required: true, index: true },
@@ -328,15 +274,6 @@ const AnalyticsEvent = mongoose.model("AnalyticsEvent", analyticsEventSchema);
 
 // TTL：埋点只保留 90 天（宣传周期分析够用，防数据无限膨胀）
 analyticsEventSchema.index({ createdAt: 1 }, { expireAfterSeconds: 90 * 24 * 60 * 60 });
-
-// ===== 订阅消息（V2.0 新增：有人加入行程通知发起人）=====
-const subscribeSchema = new mongoose.Schema({
-  openid: { type: String, required: true, index: true },
-  tripId: { type: mongoose.Schema.Types.ObjectId, required: true },
-  status: { type: String, enum: ["unused", "used"], default: "unused" }
-}, { timestamps: true });
-
-const Subscribe = mongoose.model("Subscribe", subscribeSchema);
 
 // ===== 加入/发布行程限流（v2.0.0：1小时内最多5次，加入和发布统一计数）=====
 const joinStatSchema = new mongoose.Schema({
@@ -410,47 +347,6 @@ async function trackEvent(type, tripId, openid, extra = {}) {
   }
 }
 
-// 有人加入行程 → 通知发起人（一次性订阅消息，fire-and-forget）
-// 模板：「活动成行通知」（编号12942）字段：thing4=活动地点(路线)、time3=活动时间、thing2=活动内容(加入者ID)、thing5=温馨提示(拼车进展)；thing 字段限 20 字，time 需 YYYY-MM-DD HH:MM
-async function sendJoinNotify(organizerOpenid, trip, joinerName) {
-  try {
-    if (!SUBSCRIBE_TEMPLATE_ID || !organizerOpenid || !trip) return;
-    // 优先消耗本行程的订阅授权（发布时按 tripId 存的）；没有则用最近的任意 unused 兜底
-    let sub = await Subscribe.findOne({ openid: organizerOpenid, status: "unused", tripId: trip._id }).sort({ createdAt: -1 });
-    if (!sub) {
-      sub = await Subscribe.findOne({ openid: organizerOpenid, status: "unused" }).sort({ createdAt: -1 });
-    }
-    if (!sub) return;
-
-    const token = await getAccessToken();
-    if (!token) return;
-
-    // 席位总数（不含发起人）
-    const totalSeats = trip.capacity || 3;
-
-    await axios.post(
-      `https://api.weixin.qq.com/cgi-bin/message/subscribe/send?access_token=${token}`,
-      {
-        touser: organizerOpenid,
-        template_id: SUBSCRIBE_TEMPLATE_ID,
-        page: "pages/detail/detail?id=" + trip._id,
-        miniprogram_state: "formal",
-        lang: "zh_CN",
-        data: {
-          thing4: { value: ((trip.from || "") + "→" + (trip.to || "")).slice(0, 20) },   // 活动地点=路线
-          time3: { value: (trip.date || "") + " " + (trip.time || "") },                 // 活动时间=出发日期+时间
-          thing2: { value: ("加入者：" + (joinerName || "有同学")).slice(0, 20) },      // 活动内容=加入者用户ID
-          thing5: { value: ("已有 " + ((trip.headcount || 0) + 1) + "/" + totalSeats + " 人").slice(0, 20) } // 温馨提示=拼车进展
-        }
-      }
-    );
-    sub.status = "used";
-    await sub.save();
-  } catch (e) {
-    console.error("[订阅消息] 发送失败:", e.message);
-  }
-}
-
 // ===== 费用提示（不碰资金，V1.3 新增）=====
 // 高频路线预估价区间（元），方向可逆；未收录返回 null
 const COST_TABLE = {
@@ -516,7 +412,8 @@ function buildTripDateTime(trip) {
 async function expireOverdueTrips() {
   try {
     const now = new Date();
-    const activeTrips = await Trip.find({ status: "active" });
+    // active 与 full 都参与过期：满员行程出发后同样从大厅消失（发起人仍可标记完成）
+    const activeTrips = await Trip.find({ status: { $in: ["active", "full"] } });
     const expiredIds = [];
 
     for (const trip of activeTrips) {
@@ -563,8 +460,10 @@ if (!process.env.SMTP_PASS) console.error("[ERROR] 缺少环境变量 SMTP_PASS�
 app.post("/api/analytics/event", verifyToken, async (req, res) => {
   try {
     const { type, tripId, extra } = req.body;
-    if (!type || typeof type !== "string") {
-      return res.status(400).json({ message: "缺少事件类型" });
+    // 白名单：埋点上报仅服务前端两处 fire-and-forget（其余事件由服务端直写）
+    const ALLOWED = ["trip_view", "contact_copy"];
+    if (!type || !ALLOWED.includes(type)) {
+      return res.status(400).json({ message: "无效事件类型" });
     }
     trackEvent(type, tripId, req.user.openid, extra || {});
     res.json({ message: "ok" });
@@ -830,12 +729,6 @@ app.post("/api/trips/:id/join", verifyToken, requireVerified, async (req, res) =
         actorName: (user && user.displayName) || "有同学"
       });
     } catch (e) {}
-    // 通知发起人有人加入（订阅消息，静默失败不影响主流程）
-    // 发起人若已退出行程，则不再通知（角色不区分后的边界处理）
-    const organizerActive = updated.members.some((m) => m.openid === trip.openid && m.status === "joined");
-    if (organizerActive) {
-      sendJoinNotify(trip.openid, updated, user && user.displayName ? user.displayName : null);
-    }
     res.json({ message: "加入成功", trip: updated });
   } catch (err) {
     console.error("加入行程失败:", err);
@@ -871,24 +764,6 @@ app.get("/api/mytrips/active", verifyToken, async (req, res) => {
     res.json({ trips: safeTrips });
   } catch (err) {
     console.error("获取我的进行中行程失败:", err);
-    res.status(500).json({ message: "服务器错误" });
-  }
-});
-
-// 保存订阅授权（发布行程后前端调用；一次性订阅：发一次即用尽）
-app.post("/api/subscribe", verifyToken, async (req, res) => {
-  try {
-    const { tripId } = req.body;
-    if (!SUBSCRIBE_TEMPLATE_ID) {
-      return res.status(400).json({ message: "订阅消息未配置，请联系管理员" });
-    }
-    if (!mongoose.Types.ObjectId.isValid(tripId)) {
-      return res.status(400).json({ message: "无效的行程ID" });
-    }
-    await Subscribe.create({ openid: req.user.openid, tripId });
-    res.json({ message: "订阅成功" });
-  } catch (err) {
-    console.error("保存订阅失败:", err);
     res.status(500).json({ message: "服务器错误" });
   }
 });
@@ -1215,53 +1090,6 @@ app.get('/api/trips/:id', async (req, res) => {
   }
 });
 
-app.get("/api/trips/:id/contact", verifyToken, requireVerified, async (req, res) => {
-  try {
-    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-      return res.status(400).json({ message: "无效的行程ID" });
-    }
-
-    const trip = await Trip.findById(req.params.id);
-    if (!trip) {
-      return res.status(404).json({ message: "找不到该行程" });
-    }
-
-    const openid = req.user.openid;
-
-    // V1.3 撮合闭环：只有已加入成员或发起人才能查看联系方式
-    const isOrganizer = trip.openid === openid;
-    const isMember = trip.members.some((m) => m.openid === openid && m.status === "joined");
-    if (!isOrganizer && !isMember) {
-      return res.status(403).json({ message: "请先加入行程，才能查看联系方式" });
-    }
-
-    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
-    const copyCount = await ContactCopy.countDocuments({
-      openid,
-      copiedAt: { $gte: twoHoursAgo }
-    });
-
-    if (copyCount >= 5) {
-      return res.status(429).json({ message: "操作过于频繁，2小时内最多可复制5次联系方式" });
-    }
-
-    await ContactCopy.create({ openid, tripId: req.params.id });
-
-    const today = new Date().toISOString().split("T")[0];
-    await CopyStat.findOneAndUpdate(
-      { date: today },
-      { $inc: { count: 1 } },
-      { upsert: true, new: true }
-    );
-
-    trackEvent("trip_contact", trip._id, openid);
-    res.json({ contact: trip.contact, remaining: 5 - copyCount - 1 });
-  } catch (err) {
-    console.error("获取联系方式失败:", err);
-    res.status(500).json({ message: "服务器错误" });
-  }
-});
-
 app.post("/api/auth/send-code", sendCodeLimiter, async (req, res) => {
   try {
     const { emailPrefix } = req.body;
@@ -1307,34 +1135,6 @@ app.post("/api/auth/send-code", sendCodeLimiter, async (req, res) => {
 
 // 注：小程序时期的微信登录（/api/auth/login，jscode2session 换 openid）已移除。
 // 网站端登录见上方 /api/auth/web-login（北化邮箱验证码，openid 的值即邮箱）。
-
-app.post("/api/auth/verify", verifyToken, async (req, res) => {
-  const { emailPrefix, code } = req.body;
-  const email = `${emailPrefix}@buct.edu.cn`;
-  const openid = req.user.openid;
-
-  try {
-    const authRecord = await Auth.findOne({ email, code: String(code), expiresAt: { $gt: new Date() } });
-    if (!authRecord) return res.status(400).json({ message: "验证码错误或已过期" });
-
-    const existingUser = await User.findOne({ email });
-    if (existingUser && existingUser.openid !== openid) {
-      return res.status(400).json({ message: "该邮箱已被其他微信绑定！" });
-    }
-
-    const user = await User.findOneAndUpdate(
-      { openid },
-      { email, isVerified: true },
-      { upsert: true, new: true }
-    );
-    // v2.0.0 新用户默认 ID 带随机后缀；老用户认证时同样惰性升级
-    await ensureUniqueDisplayName(user);
-    await Auth.deleteMany({ email });
-    res.json({ message: "认证成功", isVerified: true, email });
-  } catch (err) {
-    res.status(500).json({ message: "认证失败" });
-  }
-});
 
 // ===== 网站端登录 =====
 // 北化邮箱验证码直接登录，不依赖微信。身份锚点 = 邮箱：
@@ -1383,37 +1183,6 @@ app.post("/api/auth/web-login", webLoginLimiter, async (req, res) => {
   } catch (err) {
     console.error("[web-login] 登录失败:", err);
     res.status(500).json({ message: "登录失败，请稍后再试" });
-  }
-});
-
-app.post("/api/auth/unbind", verifyToken, async (req, res) => {
-  const { openid } = req.user;
-
-  try {
-    await User.findOneAndUpdate(
-      { openid },
-      { isVerified: false, email: "" }
-    );
-
-    // 解绑后不再是认证用户：自动解散他发起的所有进行中行程（cancelled + 全员退出）
-    const disbanded = await Trip.updateMany(
-      { openid, status: { $in: ["active", "full"] } },
-      {
-        $set: {
-          status: "cancelled",
-          "members.$[elem].status": "cancelled"
-        }
-      },
-      { arrayFilters: [{ "elem.status": "joined" }] }
-    );
-
-    res.json({
-      message: disbanded.modifiedCount > 0
-        ? `解绑成功，已自动解散你的 ${disbanded.modifiedCount} 个进行中行程`
-        : "解绑成功"
-    });
-  } catch (err) {
-    res.status(500).json({ message: "解绑失败" });
   }
 });
 
@@ -1504,36 +1273,6 @@ app.get("/api/user/profile", verifyToken, async (req, res) => {
     });
   } catch (err) {
     console.error("获取用户信息失败:", err);
-    res.status(500).json({ message: "服务器错误" });
-  }
-});
-
-app.get("/api/stats/copy", async (req, res) => {
-  const adminKey = req.headers["x-admin-key"] || req.query.key;
-  if (!adminKey || adminKey !== process.env.ADMIN_KEY) {
-    return res.status(403).json({ message: "无权访问" });
-  }
-
-  try {
-    const days = Math.min(parseInt(req.query.days, 10) || 7, 90);
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - days + 1);
-    const startDateStr = startDate.toISOString().split("T")[0];
-
-    const stats = await CopyStat.find({ date: { $gte: startDateStr } }).sort({ date: -1 });
-
-    const result = [];
-    for (let i = 0; i < days; i++) {
-      const d = new Date(startDate);
-      d.setDate(d.getDate() + i);
-      const dateStr = d.toISOString().split("T")[0];
-      const stat = stats.find((s) => s.date === dateStr);
-      result.push({ date: dateStr, count: stat ? stat.count : 0 });
-    }
-
-    res.json({ days, stats: result });
-  } catch (err) {
-    console.error("获取复制统计失败:", err);
     res.status(500).json({ message: "服务器错误" });
   }
 });
@@ -2068,6 +1807,9 @@ app.post("/api/contributors/apply", async (req, res) => {
     const today = new Date().toISOString().slice(0, 10);
     const rec = applyLimiterMap.get(ip);
     if (!rec || rec.date !== today) applyLimiterMap.set(ip, { date: today, count: 0 });
+    if (applyLimiterMap.size > 500) {
+      for (const [k, v] of applyLimiterMap) if (v.date !== today) applyLimiterMap.delete(k);
+    }
     const entry = applyLimiterMap.get(ip);
     if (entry.count >= 5) return res.status(429).json({ message: "提交过于频繁，请明天再试" });
     entry.count++;
