@@ -147,7 +147,7 @@
       <div v-if="visibleTrips.length" class="list">
         <article v-for="(t, i) in visibleTrips" :key="t.id" class="card" :style="{'--i': i}" @click="openTrip(t.id)">
           <div class="card-head">
-            <span class="card-when">{{ t.displayDate }} {{ t.time }} 出发</span>
+            <span class="card-when"><span class="card-no" v-if="t.tripNo">#{{ t.tripNo }}</span> {{ t.displayDate }} {{ t.time }} 出发</span>
             <span class="card-tag" :class="tagClass(t)">{{ tagOf(t) }}</span>
           </div>
           <div class="route">

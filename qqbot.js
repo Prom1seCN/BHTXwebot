@@ -277,9 +277,9 @@ const HELP_TEXT = [
   "【百花同行 · 指令】",
   "发布行程：@我 明天下午四点 北化北区到北京南站",
   "查询：查 明天 / 查 明天 北化北区",
-  "加入：加入 序号（查询后）",
+  "加入：加入 序号 或 加入 行程号（如 260913001）",
   "我的行程：我的",
-  "退出：退出 序号（「我的」之后）",
+  "退出：退出 序号 或 退出 行程号",
   "绑定 / 联系方式：私聊发送",
   "网页版：bhtx.prom1se.cn"
 ].join("\n");
@@ -347,7 +347,7 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
     if (r.status !== 200) return reply(apiMsg(r));
     const trip = (r.data && r.data.trip) || {};
     return reply(
-      `已发布 ✓\n${fmtCN(trip.date)} ${trip.time} ${trip.from} → ${trip.to}\n` +
+      `已发布 ✓ #${trip.tripNo || ""}\n${fmtCN(trip.date)} ${trip.time} ${trip.from} → ${trip.to}\n` +
       `${trip.feeHint ? trip.feeHint + "\n" : ""}默认再拼 2 人；有新同行者时我会私聊提醒你（需添加我为好友）。`
     );
   }
@@ -381,8 +381,8 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
     const route = [q.from, q.to].filter(Boolean).join("→");
     return reply(
       `【${scope}${route ? " · " + route : ""}】共 ${list.length} 班\n` +
-      list.map((x, i) => `${i + 1}. ${fmtCN(x.date)} ${x.time} ${x.from}→${x.to} 余${(x.capacity || 4) - 1 - (x.headcount || 0)}位`).join("\n") +
-      "\n回复「加入 序号」上车"
+      list.map((x, i) => `${i + 1}. ${x.tripNo ? "#" + x.tripNo : ""} ${fmtCN(x.date)} ${x.time} ${x.from}→${x.to} 余${(x.capacity || 4) - 1 - (x.headcount || 0)}位`).join("\n") +
+      "\n回复「加入 序号」或「加入 行程号」上车"
     );
   }
 
@@ -401,30 +401,59 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
     return reply(out.trim());
   }
 
-  const jm = t.match(/^(加入|上车)\s*(\d{1,2})$/);
+  const jm = t.match(/^(加入|上车)\s*(\d{1,9})$/);
   if (jm) {
-    const list = s.results || [];
-    if (!list.length) return reply("请先查询：发送「查 明天」或「查 明天 北化北区」");
-    const trip = list[parseInt(jm[2], 10) - 1];
-    if (!trip) return reply(`序号超出范围（1-${list.length}）`);
+    const num = jm[2];
+    let trip = null;
+    if (num.length >= 3) {
+      // 9 位行程号（如 260913001）：全局直加，无需先查询
+      let list = [];
+      try {
+        const r = await axios.get(`${CONFIG.publicBase}/trips?limit=100`, { timeout: 15000 });
+        list = Array.isArray(r.data) ? r.data : [];
+      } catch (e) { return reply("查询失败，请稍后再试"); }
+      const hit = list.find((x) => x.tripNo === num);
+      if (!hit) return reply(`没找到行程号 ${num}（仅进行中的行程可加入）`);
+      trip = { id: hit._id, date: hit.date, time: hit.time, from: hit.from, to: hit.to };
+    } else {
+      const list = s.results || [];
+      if (!list.length) return reply("请先查询：发送「查 明天」或「查 明天 北化北区」，或直接「加入 行程号」");
+      trip = list[parseInt(num, 10) - 1];
+      if (!trip) return reply(`序号超出范围（1-${list.length}）`);
+      trip = Object.assign({}, trip, { id: trip.id || trip._id });
+    }
     const r = await proxy(uid, "POST", `/trips/${trip.id}/join`, {});
     if (r.status !== 200) return reply(apiMsg(r));
     const x = (r.data && r.data.trip) || trip;
     return reply(
-      `已加入 ✓ ${fmtCN(x.date)} ${x.time} ${x.from}→${x.to}（${(x.headcount || 0) + 1}/${(x.capacity || 4) - 1}）\n` +
+      `已加入 ✓ ${x.tripNo ? "#" + x.tripNo + " " : ""}${fmtCN(x.date)} ${x.time} ${x.from}→${x.to}（${(x.headcount || 0) + 1}/${(x.capacity || 4) - 1}）\n` +
       "同车成员联系方式在网页详情页互看；出发前 1 小时我会提醒你。"
     );
   }
 
-  const lm = t.match(/^(退出|下车)\s*(\d{1,2})$/);
+  const lm = t.match(/^(退出|下车)\s*(\d{1,9})$/);
   if (lm) {
-    const list = s.myJoined || [];
-    if (!list.length) return reply("请先发送「我的」查看进行中的行程");
-    const trip = list[parseInt(lm[2], 10) - 1];
-    if (!trip) return reply(`序号超出范围（1-${list.length}）`);
-    const r = await proxy(uid, "POST", `/trips/${trip.id}/leave`, {});
+    const num = lm[2];
+    let trip = null;
+    if (num.length >= 3) {
+      let trips = [];
+      try {
+        const r = await proxy(uid, "GET", "/mytrips/active");
+        if (r.status !== 200) return reply(apiMsg(r));
+        trips = (r.data && r.data.trips) || [];
+      } catch (e) { return reply("查询失败，请稍后再试"); }
+      const hit = trips.find((x) => x.tripNo === num);
+      if (!hit) return reply(`没找到行程号 ${num}（仅你进行中的行程可退出）`);
+      trip = hit;
+    } else {
+      const list = s.myJoined || [];
+      if (!list.length) return reply("请先发送「我的」查看进行中的行程");
+      trip = list[parseInt(num, 10) - 1];
+      if (!trip) return reply(`序号超出范围（1-${list.length}）`);
+    }
+    const r = await proxy(uid, "POST", `/trips/${trip.id || trip._id}/leave`, {});
     if (r.status !== 200) return reply(apiMsg(r));
-    return reply(`已退出：${fmtCN(trip.date)} ${trip.time} ${trip.from}→${trip.to}`);
+    return reply(`已退出：${trip.tripNo ? "#" + trip.tripNo + " " : ""}${fmtCN(trip.date)} ${trip.time} ${trip.from}→${trip.to}`);
   }
 
   // 其余消息：尝试按发布意图解析

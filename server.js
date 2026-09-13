@@ -234,7 +234,9 @@ const tripSchema = new mongoose.Schema({
     status: { type: String, enum: ["joined", "cancelled"], default: "joined" }
   }],
   feeHint: { type: String, default: "" },     // 费用提示文案，服务端生成，前端只展示
-  actualCost: { type: Number, default: null } // v2.0.0 实际总费用（成员可填可编辑，0-999；null=未填）
+  actualCost: { type: Number, default: null }, // v2.0.0 实际总费用（成员可填可编辑，0-999；null=未填）
+  // 行程号：YYMMDD(出发日期) + 当天第几班（3 位，按创建顺序递增，一经分配不变）
+  tripNo: { type: String, unique: true, sparse: true }
 }, { timestamps: true });
 
 tripSchema.index({ "members.openid": 1 });
@@ -585,28 +587,40 @@ app.post("/api/trips", publishLimiter, verifyToken, requireVerified, async (req,
 
     // 发起人默认副驾驶
     const publisherName = publisher && publisher.displayName ? publisher.displayName : "北化校友";
-    const trip = await Trip.create({
-      from, to, date, time, contact,
-      openid,
-      nickname: publisherName,
-      avatar: "",
-      status: "active",
-      tripType: "scheduled",
-      remark: (remark && remark.trim()) ? remark.trim() : "",
-      capacity: finalCapacity,
-      headcount: 0,
-      organizerRole: finalRole,
-      feeHint,
-      members: [{
-        openid,
-        nickname: publisherName,
-        displayName: publisherName,
-        role: "organizer",
-        seat: "",
-        contact: contact.trim(),   // v2.0.0 发起人联系方式同步到成员
-        status: "joined"
-      }]
-    });
+    // 行程号：出发日期 YYMMDD + 当天第几班（创建顺序递增，唯一索引兜底并发，冲突自动重试）
+    let trip = null;
+    for (let attempt = 0; attempt < 3 && !trip; attempt++) {
+      const dayCount = await Trip.countDocuments({ date });
+      const candidate = date.slice(2, 4) + date.slice(5, 7) + date.slice(8, 10) + String(dayCount + 1).padStart(3, "0");
+      try {
+        trip = await Trip.create({
+          from, to, date, time, contact,
+          openid,
+          nickname: publisherName,
+          avatar: "",
+          status: "active",
+          tripType: "scheduled",
+          remark: (remark && remark.trim()) ? remark.trim() : "",
+          capacity: finalCapacity,
+          headcount: 0,
+          organizerRole: finalRole,
+          feeHint,
+          tripNo: candidate,
+          members: [{
+            openid,
+            nickname: publisherName,
+            displayName: publisherName,
+            role: "organizer",
+            seat: "",
+            contact: contact.trim(),   // v2.0.0 发起人联系方式同步到成员
+            status: "joined"
+          }]
+        });
+      } catch (e) {
+        if (!(e && e.code === 11000)) throw e; // 行程号撞号（并发）：换下一个号重试
+      }
+    }
+    if (!trip) return res.status(500).json({ message: "发布失败，请重试" });
 
     // 联系方式随行程更新（最新优先：与手动修改共用同一份 User.contact）
     if (publisher && publisher.contact !== contact.trim()) {
@@ -1721,7 +1735,7 @@ app.post("/api/internal/qq/notify-pull", internalGuard, async (req, res) => {
     for (const n of docs) {
       await QQNotify.updateOne({ _id: n._id }, { sentAt: new Date() });
       const trip = await Trip.findById(n.tripId)
-        .select("from to date time capacity headcount members openid actualCost").lean();
+        .select("from to date time capacity headcount members openid actualCost tripNo").lean();
       if (!trip) continue;
       const memberOpenids = [...new Set([trip.openid, ...trip.members.filter((m) => m.status === "joined").map((m) => m.openid)])]
         .filter((o) => o !== n.actorOpenid);
@@ -1730,7 +1744,7 @@ app.post("/api/internal/qq/notify-pull", internalGuard, async (req, res) => {
         .select("qqOpenId").lean();
       if (!users.length) continue; // 全员未绑定 QQ：无触达渠道，静默跳过
 
-      const label = `${trip.from}→${trip.to} ${trip.date} ${trip.time}`;
+      const label = `${trip.tripNo ? "#" + trip.tripNo + " " : ""}${trip.from}→${trip.to} ${trip.date} ${trip.time}`;
       const progress = `（当前 ${(trip.headcount || 0) + 1}/${(trip.capacity || 4) - 1}）`;
       let text;
       if (n.type === "join") {
