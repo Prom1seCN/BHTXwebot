@@ -202,7 +202,7 @@ function matchTime(t) {
     else if (tm[3] === "三刻") min = 45;
     else min = /^\d+$/.test(tm[3]) ? parseInt(tm[3], 10) : cnNum(tm[3]);
   }
-  if (h == null || min == null || h > 23 || min > 59) return { error: "出发时间格式没看懂（例如：下午四点半）" };
+  if (h == null || min == null || h > 23 || min > 59) return { error: "出发时间格式没看懂，例如：下午四点半" };
   const md = tm[1] || "";
   if (/下午|午后|傍晚|晚上|夜里/.test(md) && h < 12) h += 12;
   if (md === "中午" && h < 6) h += 12;
@@ -233,13 +233,13 @@ function parsePublish(raw) {
   let rest = d.match ? t.replace(d.match, " ") : t;
   const tm = matchTime(rest);
   if (!d.match && !tm) return null; // 完全不含时间信息，不像发布意图
-  if (d.match && !tm) return { error: "请说明出发时间（例如：明天下午四点）" };
-  if (!d.match && tm && !tm.error) return { error: "请说明出发日期（例如：明天、周五、10月1日）" };
+  if (d.match && !tm) return { error: "请说明出发时间，例如：明天下午四点" };
+  if (!d.match && tm && !tm.error) return { error: "请说明出发日期，例如：明天、周五" };
   if (tm.error) return { error: tm.error };
   rest = rest.replace(tm.match, " ");
 
   const route = parseRoute(rest);
-  if (!route) return { error: "没找到起终点。出发地和目的地用「到」连接，需为常用地点（如北化北区、北京南站）" };
+  if (!route) return { error: "没找到起终点。出发地与目的地需为常用地点，用「到」连接" };
   const dep = new Date(`${d.date}T${tm.time}:00+08:00`);
   if (dep.getTime() <= Date.now()) return { error: "出发时间必须晚于当前时间" };
   return { date: d.date, time: tm.time, from: route.from, to: route.to };
@@ -275,17 +275,20 @@ setInterval(() => {
 // ===== 文案 =====
 const HELP_TEXT = [
   "【百花同行 · 指令】",
-  "发布行程：@我 明天下午四点 北化北区到北京南站",
-  "查询：查 明天 / 查 明天 北化北区",
-  "加入：加入 序号 或 加入 行程号（如 260913001）",
-  "我的行程：我的",
-  "退出：退出 序号 或 退出 行程号",
-  "绑定 / 解除绑定 / 联系方式：私聊发送",
-  "网页版：bhtx.prom1se.cn"
+  "发布  一句话说明时间与路线",
+  "　　　如：明天下午四点 北化北区到北京南站",
+  "查询  查 明天 / 查 明天 北化北区",
+  "加入  加入 行程号 或 序号",
+  "退出  退出 行程号 或 序号",
+  "我的  查看进行中的行程",
+  "绑定  私聊发送：绑定 学号",
+  "解绑  私聊发送：解除绑定",
+  "联系  私聊发送：联系方式 微信号",
+  "网页  bhtx.prom1se.cn"
 ].join("\n");
 
 const FALLBACK_TEXT = "没看懂这条消息。\n发布示例：明天下午四点 北化北区到北京南站\n查询示例：查 明天\n发送「帮助」查看全部指令";
-const BIND_HINT = "尚未绑定。请私聊我发送「绑定 学号」（先添加我为好友），验证北化邮箱后即可发布和加入行程。";
+const BIND_HINT = "尚未绑定。请先添加我为好友，私聊发送「绑定 学号」完成验证。";
 
 function fmtCN(d) {
   const p = String(d || "").split("-");
@@ -332,7 +335,7 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
       return reply("已解除 QQ 绑定。你的账号与行程不受影响；重新使用机器人时私聊发送「绑定 学号」即可。");
     }
     s.pendingUnbind = true;
-    return reply("确认解除 QQ 绑定？解除后需重新绑定才能使用机器人（账号与行程不受影响）。\n回复「确认解绑」执行。");
+    return reply("确认解除 QQ 绑定？账号与行程不受影响，解除后需重新绑定。\n回复「确认解绑」执行。");
   }
 
   if (isDM && /^确认解绑/.test(t)) {
@@ -350,7 +353,7 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
 
   if (/^绑定/.test(t)) {
     if (isDM) return handleBindDM(raw, uid, reply);
-    return reply("绑定请在私聊完成（学号不宜留在群聊天记录）：\n先添加我为好友，然后私聊发送「绑定 学号」");
+    return reply("绑定请在私聊完成，学号不宜留在群聊天记录。\n先添加我为好友，然后私聊发送「绑定 学号」。");
   }
 
   if (/^联系方式/.test(t)) {
@@ -361,7 +364,7 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
     if (!m) return reply("请发送：联系方式 微信号或手机号");
     const r = await proxy(uid, "PUT", "/user/contact", { contact: m[1].trim().slice(0, 50) });
     if (r.status !== 200) return reply(apiMsg(r));
-    return reply("联系方式已保存，发布行程将默认使用它（仅同车成员可见）");
+    return reply("联系方式已保存，仅同车成员可见，发布行程时默认使用。");
   }
 
   if (/^(确认|确认发布)$/.test(t)) {
@@ -373,8 +376,8 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
     if (r.status !== 200) return reply(apiMsg(r));
     const trip = (r.data && r.data.trip) || {};
     return reply(
-      `已发布 ✓ #${trip.tripNo || ""}\n${fmtCN(trip.date)} ${trip.time} ${trip.from} → ${trip.to}\n` +
-      `${trip.feeHint ? trip.feeHint + "\n" : ""}默认再拼 2 人；有新同行者时我会私聊提醒你（需添加我为好友）。`
+      `已发布 ${trip.tripNo ? "#" + trip.tripNo : ""}\n${fmtCN(trip.date)} ${trip.time} ${trip.from} → ${trip.to}\n` +
+      `默认再拼 2 人。有新同行者时我将私聊通知你。`
     );
   }
 
@@ -420,10 +423,10 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
     const org = [], joined = [];
     trips.forEach((x) => (x.isOrganizer ? org : joined).push(x));
     s.myJoined = joined;
-    const f = (x) => `${x.tripNo ? "#" + x.tripNo + " " : ""}${fmtCN(x.date)} ${x.time} ${x.from}→${x.to}（${(x.headcount || 0) + 1}/${(x.capacity || 4) - 1}${x.isFull ? "·已满" : ""}）`;
+    const f = (x) => `${x.tripNo ? "#" + x.tripNo + " " : ""}${fmtCN(x.date)} ${x.time} ${x.from} → ${x.to}，${(x.headcount || 0) + 1}/${(x.capacity || 4) - 1} 人${x.isFull ? "，已满" : ""}`;
     let out = "";
     if (org.length) out += "我发起的：\n" + org.map((x, i) => `${i + 1}. ${f(x)}`).join("\n") + "\n";
-    if (joined.length) out += "我加入的（回复「退出 序号」可退出）：\n" + joined.map((x, i) => `${i + 1}. ${f(x)}`).join("\n");
+    if (joined.length) out += "我加入的：\n" + joined.map((x, i) => `${i + 1}. ${f(x)}`).join("\n");
     return reply(out.trim());
   }
 
@@ -439,21 +442,21 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
         list = Array.isArray(r.data) ? r.data : [];
       } catch (e) { return reply("查询失败，请稍后再试"); }
       const hit = list.find((x) => x.tripNo === num);
-      if (!hit) return reply(`没找到行程号 ${num}（仅进行中的行程可加入）`);
+      if (!hit) return reply(`没找到行程号 ${num}，仅进行中的行程可加入。`);
       trip = { id: hit._id, date: hit.date, time: hit.time, from: hit.from, to: hit.to };
     } else {
       const list = s.results || [];
       if (!list.length) return reply("请先查询：发送「查 明天」或「查 明天 北化北区」，或直接「加入 行程号」");
       trip = list[parseInt(num, 10) - 1];
-      if (!trip) return reply(`序号超出范围（1-${list.length}）`);
+      if (!trip) return reply(`序号超出范围，可用 1 至 ${list.length}`);
       trip = Object.assign({}, trip, { id: trip.id || trip._id });
     }
     const r = await proxy(uid, "POST", `/trips/${trip.id}/join`, {});
     if (r.status !== 200) return reply(apiMsg(r));
     const x = (r.data && r.data.trip) || trip;
     return reply(
-      `已加入 ✓ ${x.tripNo ? "#" + x.tripNo + " " : ""}${fmtCN(x.date)} ${x.time} ${x.from}→${x.to}（${(x.headcount || 0) + 1}/${(x.capacity || 4) - 1}）\n` +
-      "同车成员联系方式在网页详情页互看；出发前 1 小时我会提醒你。"
+      `已加入 ${x.tripNo ? "#" + x.tripNo + " " : ""}${fmtCN(x.date)} ${x.time} ${x.from} → ${x.to}，当前 ${(x.headcount || 0) + 1}/${(x.capacity || 4) - 1} 人。\n` +
+      "同车成员联系方式在网页详情页互看，出发前 1 小时我将提醒你。"
     );
   }
 
@@ -469,17 +472,17 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
         trips = (r.data && r.data.trips) || [];
       } catch (e) { return reply("查询失败，请稍后再试"); }
       const hit = trips.find((x) => x.tripNo === num);
-      if (!hit) return reply(`没找到行程号 ${num}（仅你进行中的行程可退出）`);
+      if (!hit) return reply(`没找到行程号 ${num}，仅你进行中的行程可退出。`);
       trip = hit;
     } else {
       const list = s.myJoined || [];
       if (!list.length) return reply("请先发送「我的」查看进行中的行程");
       trip = list[parseInt(num, 10) - 1];
-      if (!trip) return reply(`序号超出范围（1-${list.length}）`);
+      if (!trip) return reply(`序号超出范围，可用 1 至 ${list.length}`);
     }
     const r = await proxy(uid, "POST", `/trips/${trip.id || trip._id}/leave`, {});
     if (r.status !== 200) return reply(apiMsg(r));
-    return reply(`已退出：${trip.tripNo ? "#" + trip.tripNo + " " : ""}${fmtCN(trip.date)} ${trip.time} ${trip.from}→${trip.to}`);
+    return reply(`已退出 ${trip.tripNo ? "#" + trip.tripNo + " " : ""}${fmtCN(trip.date)} ${trip.time} ${trip.from} → ${trip.to}`);
   }
 
   // 其余消息：尝试按发布意图解析
@@ -495,9 +498,9 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
 // 私聊绑定流
 async function handleBindDM(raw, uid, reply) {
   const who = await whoami(uid);
-  if (who && who.bound) return reply(`你已绑定 ${who.emailMasked}（${who.displayName}），无需重复绑定`);
+  if (who && who.bound) return reply(`你已绑定 ${who.emailMasked}，ID：${who.displayName}，无需重复绑定`);
   const m = raw.match(/^绑定\s*(\d{6,15})$/);
-  if (!m) return reply("请发送：绑定 学号\n例如：绑定 2024010101\n验证码将发送到你的北化邮箱（企业微信-工作台-电子邮件查收）");
+  if (!m) return reply("请发送：绑定 学号\n验证码将发送至你的北化邮箱，请在企业微信-工作台-电子邮件查收。");
   const r = await internal("bind-start", { qqOpenid: uid, studentId: m[1] });
   if (r.status !== 200) return reply((r.data && r.data.message) || "发送失败，请稍后再试");
   bindStates.set(uid, { studentId: m[1], ts: Date.now() });
@@ -562,7 +565,7 @@ function startPollers() {
       const r = await internal("reminder-due", {});
       if (r.status === 200) {
         for (const it of (r.data.items || [])) {
-          const resp = await sendC2CProactive(it.qqOpenid, `【百花同行】提醒：「${it.tripLabel}」约 1 小时后出发，记得与同车同学联系碰头。`);
+          const resp = await sendC2CProactive(it.qqOpenid, `【百花同行】行程 ${it.tripLabel} 约 1 小时后出发，请与同车同学联系碰头。`);
           if (resp.status < 300) await internal("reminder-sent", { tripId: it.tripId, openid: it.openid });
           else log(`提醒发送失败(${resp.status}): ${JSON.stringify(resp.data).slice(0, 150)}`);
         }

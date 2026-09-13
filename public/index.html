@@ -222,7 +222,7 @@
         <div v-else class="kv"><span>预估</span><b>该路线暂无预估参考</b></div>
         <div v-if="canEditCost" class="field-row cost-edit">
           <input class="input-grow" v-model.trim="costInput" type="number" inputmode="decimal"
-                 min="0" max="999" step="0.01" placeholder="实际总车费（元）">
+                 min="0" max="999" step="0.01" placeholder="实际总车费，单位元">
           <button class="btn-ghost" :disabled="statusBusy" @click="saveCost">{{ statusBusy ? '保存中' : '保存' }}</button>
         </div>
         <p v-if="canEditCost" class="cost-note">实际车费由成员填写，作为成员间分摊结算的依据；预估仅供参考。</p>
@@ -281,7 +281,7 @@
         </select>
       </label>
       <label v-if="form.from === '__custom__'" class="field">
-        <input v-model.trim="form.fromCustom" maxlength="8" placeholder="输入出发地（最多 8 字）">
+        <input v-model.trim="form.fromCustom" maxlength="8" placeholder="输入出发地，最多 8 字">
       </label>
 
       <label class="field">
@@ -293,7 +293,7 @@
         </select>
       </label>
       <label v-if="form.to === '__custom__'" class="field">
-        <input v-model.trim="form.toCustom" maxlength="8" placeholder="输入目的地（最多 8 字）">
+        <input v-model.trim="form.toCustom" maxlength="8" placeholder="输入目的地，最多 8 字">
       </label>
 
       <div class="field-row">
@@ -428,12 +428,13 @@
       <div class="cl-item">
         <div class="cl-ver">v3.0.0 <span class="cl-date">2026-09-13</span></div>
         <ul class="cl-list">
+          <li>接入 QQ 群机器人，一句话发布行程</li>
           <li>网页版上线，北化邮箱验证码登录</li>
           <li>同行大厅支持按日期、出发地筛选</li>
-          <li>发布、加入、退出行程；满员自动停止加入，过期自动失效</li>
+          <li>发布、加入、退出行程，满员自动停止加入，过期自动失效</li>
           <li>加入后与同车成员互看联系方式，可随时修改</li>
           <li>自定义 ID，一天可修改一次</li>
-          <li>行程号（如 260913001）与 QQ 群机器人接入</li>
+          <li>行程号：日期加当日班次，例如 260913001</li>
           <li>支持添加到主屏幕</li>
         </ul>
       </div>

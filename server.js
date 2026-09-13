@@ -1623,6 +1623,12 @@ function maskStudentEmail(email) {
   return m ? `${m[1]}****${m[2]}@buct.edu.cn` : String(email || "");
 }
 
+// 2026-09-15 → 9月15日（机器人通知文案用）
+function cnDate(d) {
+  const p = String(d || "").split("-");
+  return p.length === 3 ? `${parseInt(p[1], 10)}月${parseInt(p[2], 10)}日` : String(d || "");
+}
+
 const internalGuard = (req, res, next) => {
   const k = req.headers["x-admin-key"] || req.query.key;
   if (!k || k !== process.env.ADMIN_KEY) return res.status(403).json({ message: "无权访问" });
@@ -1759,17 +1765,17 @@ app.post("/api/internal/qq/notify-pull", internalGuard, async (req, res) => {
         .select("qqOpenId").lean();
       if (!users.length) continue; // 全员未绑定 QQ：无触达渠道，静默跳过
 
-      const label = `${trip.tripNo ? "#" + trip.tripNo + " " : ""}${trip.from}→${trip.to} ${trip.date} ${trip.time}`;
-      const progress = `（当前 ${(trip.headcount || 0) + 1}/${(trip.capacity || 4) - 1}）`;
+      const label = `${trip.tripNo ? "#" + trip.tripNo + " · " : ""}${cnDate(trip.date)} ${trip.time} ${trip.from} → ${trip.to}`;
+      const progress = `，当前 ${(trip.headcount || 0) + 1}/${(trip.capacity || 4) - 1} 人`;
       let text;
       if (n.type === "join") {
-        text = `【百花同行】${n.actorName} 加入了行程「${label}」${progress}。`;
+        text = `【百花同行】${n.actorName} 加入行程 ${label}${progress}。`;
       } else if (n.type === "leave") {
-        text = `【百花同行】${n.actorName} 退出了行程「${label}」${progress}。`;
+        text = `【百花同行】${n.actorName} 退出行程 ${label}${progress}。`;
       } else if (n.type === "cost") {
         if (typeof trip.actualCost !== "number" || trip.actualCost <= 0) continue;
         const per = Math.ceil((trip.actualCost / ((trip.headcount || 0) + 1)) * 100) / 100;
-        text = `【百花同行】行程「${label}」已完成结算：总车费 ${trip.actualCost} 元，人均 ${per} 元，请向垫付车费的成员支付应付部分。`;
+        text = `【百花同行】行程 ${label} 已完成结算：总车费 ${trip.actualCost} 元，人均 ${per} 元，请向垫付车费的成员支付应付部分。`;
       } else continue;
       for (const u of users) items.push({ qqOpenid: u.qqOpenId, text });
     }
@@ -1798,7 +1804,7 @@ app.post("/api/internal/qq/reminder-due", internalGuard, async (req, res) => {
       for (const u of users) {
         const dup = await QQReminded.findOne({ tripId: t._id, openid: u.openid }).lean();
         if (dup) continue;
-        items.push({ tripId: String(t._id), openid: u.openid, qqOpenid: u.qqOpenId, tripLabel: `${t.tripNo ? "#" + t.tripNo + " " : ""}${t.from}→${t.to} ${t.date} ${t.time}` });
+        items.push({ tripId: String(t._id), openid: u.openid, qqOpenid: u.qqOpenId, tripLabel: `${t.tripNo ? "#" + t.tripNo + " · " : ""}${cnDate(t.date)} ${t.time} ${t.from} → ${t.to}` });
       }
     }
     res.json({ items });
@@ -1864,7 +1870,7 @@ app.post("/api/internal/qq/broadcast-today", internalGuard, async (req, res) => 
     if (trips.length) {
       const lines = trips.map((t, i) => {
         const left = (t.capacity || 4) - 1 - (t.headcount || 0);
-        return `${i + 1}. #${t.tripNo || ""} ${t.time} ${t.from}→${t.to}（余${left}位）`;
+        return `${i + 1}. #${t.tripNo || ""} ${t.time} ${t.from} → ${t.to}，余 ${left} 位`;
       });
       content = `【百花同行 · 今日出行 ${trips.length} 班】\n${lines.join("\n")}\n上车请@我「加入 行程号」；发布行程直接@我说时间和路线。\n网页版：bhtx.prom1se.cn`;
     }
