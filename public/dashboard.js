@@ -224,3 +224,8 @@ window.addEventListener('resize', () => {
 });
 
 load();
+
+function adminLogout() {
+  localStorage.removeItem(LS_KEY);
+  location.reload();
+}

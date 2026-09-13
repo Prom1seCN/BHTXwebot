@@ -224,3 +224,8 @@ async function decideContributor(id, approve) {
 
 // 启动
 load();
+
+function adminLogout() {
+  localStorage.removeItem(LS_KEY);
+  location.reload();
+}
