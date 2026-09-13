@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="public/wordmark.png" alt="百花同行" width="320">
+<img src="public/logo-transparent.png" width="88" align="center" alt="">&nbsp;&nbsp;<img src="public/wordmark.png" width="330" align="center" alt="百花同行">
 
 **不再一个人出发**
 
