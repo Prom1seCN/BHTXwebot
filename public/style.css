@@ -808,3 +808,5 @@ button, .card, .chip, .link-row, .tab, .uid, .menu-cell { user-select: none; -we
   padding: 2px 8px; border-radius: 999px; white-space: nowrap;
 }
 .contrib-link { font-size: 12px; color: var(--faint); text-decoration: none; margin-left: auto; }
+
+.card-foot .card-no { margin-left: auto; margin-right: 10px; font-size: 11.5px; }

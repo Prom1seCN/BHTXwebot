@@ -245,13 +245,42 @@ function parsePublish(raw) {
   return { date: d.date, time: tm.time, from: route.from, to: route.to };
 }
 
-// 查询解析：日期与起终点均可选
+// 查询解析：日期与起终点均可选；地点精确匹配优先，未命中时按关键词模糊（机场 → 首都机场+大兴机场 等）
 function parseQuery(raw) {
   let t = " " + raw.replace(/\s+/g, " ").trim() + " ";
   const d = matchDate(t);
   let rest = d.match ? t.replace(d.match, " ") : t;
-  const route = parseRoute(rest);
-  return { date: d.date, from: route && route.from, to: route && route.to };
+  const out = { date: d.date, fromList: [], toList: [] };
+  const found = [];
+  for (const loc of LOCATIONS) {
+    let idx = rest.indexOf(loc);
+    while (idx !== -1) { found.push({ loc, idx }); idx = rest.indexOf(loc, idx + 1); }
+  }
+  if (found.length) {
+    found.sort((a, b) => a.idx - b.idx);
+    const uniq = [];
+    for (const f of found) if (!uniq.includes(f.loc)) uniq.push(f.loc);
+    if (uniq.length >= 2) { out.fromList = [uniq[0]]; out.toList = [uniq[1]]; }
+    else { out.anyList = [uniq[0]]; }
+    return out;
+  }
+  const KW = [
+    ["机场", ["首都机场", "大兴机场"]],
+    ["南站", ["北京南站"]],
+    ["西站", ["北京西站"]],
+    ["朝阳站", ["北京朝阳站"]],
+    ["丰台", ["北京丰台站"]],
+    ["昌平北站", ["昌平北站"]]
+  ];
+  for (const [kw, locs] of KW) {
+    const idx = rest.indexOf(kw);
+    if (idx === -1) continue;
+    const before = rest.slice(Math.max(0, idx - 2), idx);
+    if (/从|由/.test(before)) out.fromList = locs;
+    else out.toList = locs;
+    return out;
+  }
+  return out;
 }
 
 // ===== 会话（按聊天上下文隔离；TTL 10 分钟）=====
@@ -292,7 +321,7 @@ const HELP_TEXT = [
   "网页  bhtx.prom1se.cn"
 ].join("\n");
 
-const FALLBACK_TEXT = "没看懂这条消息。\n发布示例：明天下午四点 北化北区到北京南站\n查询示例：查 明天\n发送「帮助」查看全部指令";
+const FALLBACK_TEXT = "没看懂这条消息。发送「帮助」查看全部指令";
 const BIND_HINT = "尚未绑定。请先添加我为好友，私聊发送「绑定 学号」完成验证。";
 
 function fmtCN(d) {
@@ -417,14 +446,15 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
       return reply("查询失败，请稍后再试");
     }
     if (q.date) list = list.filter((x) => x.date === q.date);
-    if (q.from) list = list.filter((x) => x.from === q.from);
-    if (q.to) list = list.filter((x) => x.to === q.to);
+    if (q.fromList && q.fromList.length) list = list.filter((x) => q.fromList.includes(x.from));
+    if (q.toList && q.toList.length) list = list.filter((x) => q.toList.includes(x.to));
+    if (q.anyList && q.anyList.length) list = list.filter((x) => q.anyList.includes(x.from) || q.anyList.includes(x.to));
     list.sort((a, b) => String(a.date + a.time).localeCompare(String(b.date + b.time)));
-    if (!list.length) return reply("该条件下暂无行程。发布示例：明天下午四点 北化北区到北京南站");
+    if (!list.length) return reply("该条件下暂无行程");
     list = list.slice(0, 10);
     s.results = list;
     const scope = q.date ? fmtCN(q.date) : "近期";
-    const route = [q.from, q.to].filter(Boolean).join("→");
+    const route = [].concat(q.fromList || [], q.toList || [], q.anyList || []).filter(Boolean).join("→");
     return reply(
       `【${scope}${route ? " · " + route : ""}】共 ${list.length} 班\n` +
       list.map((x, i) => `${i + 1}. ${x.tripNo ? "#" + x.tripNo : ""} ${fmtCN(x.date)} ${x.time} ${x.from}→${x.to} 余${(x.capacity || 4) - 1 - (x.headcount || 0)}位`).join("\n") +
@@ -590,7 +620,7 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
 
   // 其余消息：先按发布意图解析；规则失效且已配置 LLM 时，交由 LLM 兜底理解
   const p = parsePublish(t);
-  if (p && p.error) return reply(p.error + "\n\n发布示例：明天下午四点 北化北区到北京南站\n发送「帮助」查看全部指令");
+  if (p && p.error) return reply(p.error);
   if (p) {
     s.pending = { date: p.date, time: p.time, from: p.from, to: p.to, uid };
     return reply(`待发布：\n${fmtCN(p.date)} ${p.time} ${p.from} → ${p.to}\n回复「确认」发布，「取消」放弃`);
@@ -609,14 +639,14 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
         if (!from) return reply("请说明出发地，例如：北化北区");
         if (!to) return reply("请说明目的地，例如：北京南站");
         if (!LOCATIONS.includes(from) || !LOCATIONS.includes(to)) {
-          return reply("出发地与目的地需为常用地点。\n发布示例：明天下午四点 北化北区到北京南站\n发送「帮助」查看全部指令");
+          return reply("出发地与目的地需为常用地点，例如：北化北区、北京南站");
         }
         if (!ip.date || !/^\d{4}-\d{2}-\d{2}$/.test(ip.date) || !ip.time || !/^\d{2}:\d{2}$/.test(ip.time)) {
-          return reply("时间没解析清楚。\n发布示例：明天下午四点 北化北区到北京南站");
+          return reply("时间没解析清楚，例如：明天下午四点");
         }
         const dep = new Date(`${ip.date}T${ip.time}:00+08:00`);
         if (Number.isNaN(dep.getTime()) || dep.getTime() <= Date.now()) {
-          return reply("出发时间必须晚于当前时间。\n发布示例：明天下午四点 北化北区到北京南站");
+          return reply("出发时间必须晚于当前时间");
         }
         s.pending = { date: ip.date, time: ip.time, from, to, uid };
         return reply(`待发布：\n${fmtCN(ip.date)} ${ip.time} ${from} → ${to}\n回复「确认」发布，「取消」放弃`);
@@ -635,6 +665,9 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
     } catch (e) {
       log("LLM 兜底异常: " + e.message);
     }
+  }
+  if (/发布|发车|拼车|约车/.test(t)) {
+    return reply("发布行程需要说明出发时间与路线。\n示例：明天下午四点 北化北区到北京南站");
   }
   return reply(FALLBACK_TEXT);
 }

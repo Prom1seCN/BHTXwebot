@@ -153,7 +153,7 @@
       <div v-if="visibleTrips.length" class="list">
         <article v-for="(t, i) in visibleTrips" :key="t.id" class="card" :style="{'--i': i}" @click="openTrip(t.id)">
           <div class="card-head">
-            <span class="card-when"><span class="card-no" v-if="t.tripNo">#{{ t.tripNo }}</span> {{ t.displayDate }} {{ t.time }} 出发</span>
+            <span class="card-when">{{ t.displayDate }} {{ t.time }} 出发</span>
             <span class="card-tag" :class="tagClass(t)">{{ tagOf(t) }}</span>
           </div>
           <div class="route">
@@ -167,6 +167,7 @@
               </span>
               {{ (t.headcount || 0) + 1 }}/{{ (t.capacity || 4) - 1 }} 人
             </span>
+            <span class="card-no" v-if="t.tripNo">#{{ t.tripNo }}</span>
             <span class="more">查看 ›</span>
           </div>
           <div v-if="t.remark" class="card-remark">{{ t.remark }}</div>
@@ -362,6 +363,7 @@
             </span>
             {{ (t.headcount || 0) + 1 }}/{{ (t.capacity || 4) - 1 }} 人
           </span>
+          <span class="card-no" v-if="t.tripNo">#{{ t.tripNo }}</span>
           <span class="more">查看 ›</span>
         </div>
       </article>
@@ -386,6 +388,7 @@
             </span>
             {{ (t.headcount || 0) + 1 }}/{{ (t.capacity || 4) - 1 }} 人
           </span>
+          <span class="card-no" v-if="t.tripNo">#{{ t.tripNo }}</span>
           <span class="more">查看 ›</span>
         </div>
       </article>
