@@ -367,11 +367,8 @@ const app = Vue.createApp({
         this.members = (data && data.members) || [];
         this.isMemberView = !!(data && data.contact !== undefined);
 
-        if (this.isLoggedIn) {
-          const joined = await this.api('/trips/joined').catch(() => []);
-          const ids = (joined || []).map(t => String(t._id || t.id));
-          this.isMember = ids.indexOf(String(this.tripId)) > -1;
-        }
+        // isMember 以详情接口为准（仅当前在车上；曾加入已退出的走历史展示，不可再退出）
+        this.isMember = !!this.trip.isMember;
       } catch (e) {
         /* 静默：成员列表加载失败不阻塞主流程 */
       } finally {

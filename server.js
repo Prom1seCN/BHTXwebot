@@ -714,8 +714,8 @@ app.get("/api/trips/my", verifyToken, async (req, res) => {
   }
 });
 
-// 我加入的行程（V1.3）
-// v2.0.0 用 $elemMatch 保证 openid+status 指同一条成员记录（数组多条件不加 $elemMatch 会串元素）
+// 我加入的行程（V1.3）：仅当前仍在车上的（成员状态 joined）；
+// 已退出的不出现在「我的行程」，历史可在行程详情页查看
 app.get("/api/trips/joined", verifyToken, async (req, res) => {
   try {
     const openid = req.user.openid;
