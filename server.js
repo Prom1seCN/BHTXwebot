@@ -45,7 +45,8 @@ app.use(cors());
 app.use(express.json({ limit: "6mb" }));
 
 // 静态文件托管：public/ 目录下的文件可通过 https://bhtx.prom1se.cn/xxx 直接访问（如 funnel.html）
-app.use(express.static("public"));
+// no-cache：每次都向服务器协商（内容未变返回 304），杜绝发版后浏览器启发式缓存继续喂旧 JS/CSS
+app.use(express.static("public", { cacheControl: true, maxAge: 0 }));
 
 const sendCodeLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -2049,19 +2050,34 @@ app.put("/api/internal/qq/bot", internalGuard, async (req, res) => {
 // 管理：新增群（label/number/data 均可选，二维码可后补）
 // 注意：/api/internal/qq/groups 的 POST 已被「机器人群注册上报」占用（qqgroups 集合），
 // 本组接口全部走 /channels 命名空间，勿混用。
+// 防连点/重试造成重复：群号非空且已有同群号的条目 → 幂等返回既有条目；号与名全空的拒绝创建。
 app.post("/api/internal/qq/channels/groups", internalGuard, async (req, res) => {
   try {
     const { label, number, data } = req.body || {};
+    const num = String(number || "").trim().slice(0, QQ_NUM_MAX);
+    const lab = String(label || "").trim().slice(0, QQ_LABEL_MAX);
+    if (!num && !lab) return res.status(400).json({ message: "请至少填写群名或群号" });
+    if (num) {
+      const exist = await QQChannel.findOne({ kind: "group", number: num });
+      if (exist) {
+        if (data) {
+          const img = decodeImageUpload(data);
+          if (img.error) return res.status(400).json({ message: img.error });
+          const fname = exist.qr || `qq-g-${exist._id}.png`;
+          fs.writeFileSync(path.join("public", fname), img.buf);
+          exist.qr = fname; exist.updatedAt = new Date();
+          if (lab && !exist.label) exist.label = lab;
+          await exist.save();
+        }
+        return res.json({ message: "该群号已存在，已合并到现有条目", group: qqPublic(exist) });
+      }
+    }
     let img = { buf: null };
     if (data) {
       img = decodeImageUpload(data);
       if (img.error) return res.status(400).json({ message: img.error });
     }
-    const g = await QQChannel.create({
-      kind: "group",
-      label: String(label || "").trim().slice(0, QQ_LABEL_MAX),
-      number: String(number || "").trim().slice(0, QQ_NUM_MAX)
-    });
+    const g = await QQChannel.create({ kind: "group", label: lab, number: num });
     const fname = `qq-g-${g._id}.png`;
     if (img.buf) { fs.writeFileSync(path.join("public", fname), img.buf); g.qr = fname; await g.save(); }
     res.json({ message: "已添加", group: qqPublic(g) });

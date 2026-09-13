@@ -12,7 +12,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="百花同行">
 <meta name="format-detection" content="telephone=no">
-<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/style.css?v=3">
 </head>
 <body>
 <div id="app" v-cloak>
@@ -434,31 +434,6 @@
       </div>
     </section>
 
-    <!-- QQ 频道弹层 -->
-    <div v-if="qqOpen" class="mask" @click.self="qqOpen = false">
-      <div class="sheet qq-sheet">
-        <h3 class="sheet-title">QQ机器人 &amp; QQ群</h3>
-        <p class="sheet-hint">添加机器人后，私聊即可发布、查询、拼车；进群 @机器人 同样可用。</p>
-        <div class="qq-item" v-if="qqData && qqData.bot && (qqData.bot.number || qqData.bot.qr)">
-          <img v-if="qqData.bot.qr" :src="'/' + qqData.bot.qr + '?v=' + qqTs" alt="机器人二维码">
-          <div class="qq-meta">
-            <b>QQ机器人</b>
-            <span class="qq-no">{{ qqData.bot.number || '扫码添加' }}</span>
-            <button v-if="qqData.bot.number" class="btn-text qq-copy" @click="copy(qqData.bot.number)">复制</button>
-          </div>
-        </div>
-        <div class="qq-item" v-for="g in (((qqData && qqData.groups) || []).filter((x) => x.number || x.qr))" :key="g.id">
-          <img v-if="g.qr" :src="'/' + g.qr + '?v=' + qqTs" alt="群二维码">
-          <div class="qq-meta">
-            <b>{{ g.label || '拼车群' }}</b>
-            <span class="qq-no">{{ g.number || '扫码加入' }}</span>
-            <button v-if="g.number" class="btn-text qq-copy" @click="copy(g.number)">复制</button>
-          </div>
-        </div>
-        <p v-if="qqData && !qqGroupsShown" class="qq-empty">频道尚未公布，敬请期待</p>
-      </div>
-    </div>
-
     <!-- 赞助弹层 -->
     <div v-if="sponsorOpen" class="mask" @click.self="sponsorOpen = false">
       <div class="sheet sponsor-sheet">
@@ -577,6 +552,37 @@
   </main>
 
   <!-- ===== 使用教程 ===== -->
+  <!-- ===== QQ机器人 & QQ群（独立页）===== -->
+  <main v-if="view==='qq'" class="page">
+    <div class="page-head">
+      <button class="back" aria-label="返回" @click="go('about')">
+        <svg class="back-ico" viewBox="0 0 24 24"><use href="#i-back"/></svg>
+      </button>
+    </div>
+    <h1 class="page-title">QQ机器人 &amp; QQ群</h1>
+    <p class="qq-page-hint">扫码或复制号码，在 QQ 里搜索添加。添加机器人后，私聊就能发布、查询、拼车；进群 @机器人 同样可用。</p>
+
+    <section class="panel qq-card" v-if="qqData && qqData.bot && (qqData.bot.number || qqData.bot.qr)">
+      <h3 class="qq-card-title">QQ机器人</h3>
+      <img v-if="qqData.bot.qr" class="qq-qr" :src="'/' + qqData.bot.qr + '?v=' + qqTs" alt="机器人二维码">
+      <div class="qq-card-no" v-if="qqData.bot.number">
+        <span>{{ qqData.bot.number }}</span>
+        <button class="btn-primary qq-card-copy" @click="copy(qqData.bot.number)">复制号码</button>
+      </div>
+    </section>
+
+    <section class="panel qq-card" v-for="g in (((qqData && qqData.groups) || []).filter((x) => x.number || x.qr))" :key="g.id">
+      <h3 class="qq-card-title">{{ g.label || '拼车群' }}</h3>
+      <img v-if="g.qr" class="qq-qr" :src="'/' + g.qr + '?v=' + qqTs" alt="群二维码">
+      <div class="qq-card-no" v-if="g.number">
+        <span>{{ g.number }}</span>
+        <button class="btn-primary qq-card-copy" @click="copy(g.number)">复制群号</button>
+      </div>
+    </section>
+
+    <p v-if="qqData && !qqGroupsShown" class="qq-empty">频道尚未公布，敬请期待</p>
+  </main>
+
   <main v-if="view==='guide'" class="page">
     <div class="page-head">
       <button class="back" aria-label="返回" @click="go('menu')">
@@ -804,6 +810,6 @@
 
 </div>
 <script src="/vendor/vue.global.prod.js"></script>
-<script src="/app.js"></script>
+<script src="/app.js?v=3"></script>
 </body>
 </html>

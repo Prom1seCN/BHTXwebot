@@ -262,15 +262,23 @@ async function loadQQ() {
   renderQQGroups();
 }
 
+let qqBusy = false;
+async function qqGuard(fn) {
+  if (qqBusy) return;
+  qqBusy = true;
+  try { await fn(); } finally { qqBusy = false; }
+}
+
 function qqRow(qid, kind, label, number, hasQr) {
-  return '<div class="contrib-row" data-qid="' + qid + '">' +
+  qid = String(qid || '');
+  return '<div class="contrib-row" data-qid="' + escAttr(qid) + '">' +
     '<span class="qq-kind">' + kind + '</span>' +
     '<input class="dash-input" value="' + escAttr(label) + '" maxlength="20" placeholder="群名">' +
     '<input class="dash-input" value="' + escAttr(number) + '" maxlength="20" placeholder="群号">' +
     '<input type="file" accept="image/png,image/jpeg">' +
     '<span class="contrib-count">' + (hasQr ? '二维码已上传' : '未传二维码') + '</span>' +
-    '<button class="contrib-btn" onclick="saveQQGroup(\'' + qid + '\')">保存</button>' +
-    (qid.indexOf('draft') === 0 ? '' : '<button class="contrib-btn del" onclick="deleteQQGroup(\'' + qid + '\')">删除</button>') +
+    '<button class="contrib-btn" onclick="saveQQGroup(\'' + escAttr(qid) + '\')">保存</button>' +
+    (String(qid).indexOf('draft') === 0 ? '' : '<button class="contrib-btn del" onclick="deleteQQGroup(\'' + escAttr(qid) + '\')">删除</button>') +
     '</div>';
 }
 
@@ -278,23 +286,31 @@ function renderQQGroups() {
   const box = document.getElementById('qqGroupList');
   const gs = qqCache.groups || [];
   box.innerHTML = gs.length
-    ? gs.map((g) => qqRow(g.id, '群', g.label, g.number, !!g.qr)).join('')
+    ? gs.map((g) => qqRow(g.id || g._id, '群', g.label, g.number, !!g.qr)).join('')
     : '<div class="state-sm">暂无群，点下方添加</div>';
 }
 
-async function saveQQBot() {
-  const number = document.getElementById('qqBotNumber').value.trim();
-  try { await qqApiReq('PUT', '/bot', { number }); await loadQQ(); } catch (e) { alert(e.message); }
+function saveQQBot() {
+  return qqGuard(async () => {
+    const number = document.getElementById('qqBotNumber').value.trim();
+    try {
+      await qqApiReq('PUT', '/bot', { number });
+      document.getElementById('qqBotState').textContent = '已保存 ' + new Date().toLocaleTimeString('zh-CN');
+      await loadQQ();
+    } catch (e) { alert(e.message); }
+  });
 }
 
-async function uploadQQBot(input) {
-  try {
-    const data = await readImageB64(input);
-    input.value = '';
-    if (!data) return;
-    await qqApiReq('PUT', '/bot', { data });
-    await loadQQ();
-  } catch (e) { alert(e.message); }
+function uploadQQBot(input) {
+  return qqGuard(async () => {
+    try {
+      const data = await readImageB64(input);
+      input.value = '';
+      if (!data) return;
+      await qqApiReq('PUT', '/bot', { data });
+      await loadQQ();
+    } catch (e) { alert(e.message); }
+  });
 }
 
 function addQQGroup() {
@@ -307,25 +323,30 @@ function addQQGroup() {
   box.appendChild(div.firstChild);
 }
 
-async function saveQQGroup(qid) {
-  const row = document.querySelector('[data-qid="' + qid + '"]');
-  if (!row) return;
-  const inputs = row.querySelectorAll('input');
-  const label = inputs[0].value.trim(), number = inputs[1].value.trim();
-  let data = '';
-  try { data = await readImageB64(inputs[2]); } catch (e) { return alert(e.message); }
-  try {
-    const body = { label, number };
-    if (data) body.data = data;
-    if (qid.indexOf('draft') === 0) await qqApiReq('POST', '/channels/groups', body);
-    else await qqApiReq('PUT', '/channels/groups/' + qid, body);
-    await loadQQ();
-  } catch (e) { alert(e.message); }
+function saveQQGroup(qid) {
+  return qqGuard(async () => {
+    const row = document.querySelector('[data-qid="' + qid + '"]');
+    if (!row) return;
+    const inputs = row.querySelectorAll('input');
+    const label = inputs[0].value.trim(), number = inputs[1].value.trim();
+    if (!label && !number) return alert('请至少填写群名或群号');
+    let data = '';
+    try { data = await readImageB64(inputs[2]); } catch (e) { return alert(e.message); }
+    try {
+      const body = { label, number };
+      if (data) body.data = data;
+      if (String(qid).indexOf('draft') === 0) await qqApiReq('POST', '/channels/groups', body);
+      else await qqApiReq('PUT', '/channels/groups/' + qid, body);
+      await loadQQ();
+    } catch (e) { alert(e.message); }
+  });
 }
 
-async function deleteQQGroup(qid) {
-  if (!confirm('确认删除该群？二维码一并删除，关于页同步移除。')) return;
-  try { await qqApiReq('DELETE', '/channels/groups/' + qid); await loadQQ(); } catch (e) { alert(e.message); }
+function deleteQQGroup(qid) {
+  return qqGuard(async () => {
+    if (!confirm('确认删除该群？二维码一并删除，关于页同步移除。')) return;
+    try { await qqApiReq('DELETE', '/channels/groups/' + qid); await loadQQ(); } catch (e) { alert(e.message); }
+  });
 }
 
 // 启动

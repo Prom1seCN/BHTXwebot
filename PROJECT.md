@@ -146,7 +146,7 @@ qqbot 是薄壳：**不直连数据库、不复制撮合规则**。所有业务�
 
 ## 6. 前端
 
-- `public/` 单页应用（Vue 3 Options API，零构建）：hash 路由 `#/hall #/publish #/trips #/menu #/about #/guide #/legal`；移动底部 Dock + 桌面侧栏双栏；PWA 可安装
+- `public/` 单页应用（Vue 3 Options API，零构建）：hash 路由 `#/hall #/publish #/trips #/menu #/about #/qq #/guide #/legal`（`#/qq`＝QQ机器人 & QQ群独立页，大码可扫+号码复制，关于页为入口）；移动底部 Dock + 桌面侧栏双栏；PWA 可安装。静态资源 `Cache-Control: max-age=0` 强制协商 + `?v=` 版本戳（9/13 曾因浏览器启发式缓存拿旧 manage.js 引发连环操作产生重复条目）
 - 设计系统全 token 化（`style.css` `:root`），品牌蓝 `#0080FF`；行程卡「路线轨道」视觉
 - 数据看板 `dashboard.html/js/css`（复用主站 token，纯手写 SVG 图表零依赖）：漏斗/趋势/健康度/车费，`ADMIN_KEY` 存本机
 - 管理界面 `manage.html/js`：共建者名录、赞助收款码上传、赞助申请审核、**QQ 频道**（机器人号+二维码、多个群的备注/群号/二维码）——**设置类功能与统计分离**，二者互设导航入口，可一键退出（清除本机密钥）

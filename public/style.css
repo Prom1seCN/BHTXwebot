@@ -824,22 +824,17 @@ button, .card, .chip, .link-row, .tab, .uid, .menu-cell { user-select: none; -we
 }
 .sponsor-item span { font-size: 12.5px; color: var(--muted); }
 
-/* ===== QQ 频道弹层 ===== */
-.qq-sheet { max-width: 460px; }
-.qq-item {
-  display: flex; align-items: center; gap: 14px;
-  padding: 12px 0; border-top: 1px solid var(--line);
+/* ===== QQ 频道独立页 ===== */
+.qq-page-hint { font-size: 12.5px; color: var(--muted); line-height: 1.7; margin: -6px 2px 18px; }
+.qq-card { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 20px 16px 18px; margin-bottom: 14px; }
+.qq-card-title { margin: 0; font-size: 16px; font-weight: 600; color: var(--text); }
+.qq-qr {
+  width: min(320px, 72vw); aspect-ratio: 1 / 1; object-fit: contain;
+  background: #fff; border: 1px solid var(--line); border-radius: var(--r-sm); padding: 6px;
 }
-.qq-item:first-of-type { border-top: none; }
-.qq-item img {
-  width: 88px; height: 88px; flex: 0 0 88px; object-fit: contain;
-  border-radius: var(--r-sm); border: 1px solid var(--line); background: #fff;
-}
-.qq-meta { display: flex; flex-direction: column; gap: 6px; }
-.qq-meta b { font-size: 14px; color: var(--text); }
-.qq-no { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.qq-copy { align-self: flex-start; font-size: 13px; padding: 0; }
-.qq-empty { text-align: center; color: var(--faint); font-size: 13px; padding: 18px 0 6px; }
+.qq-card-no { display: flex; align-items: center; gap: 12px; font-size: 16px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; letter-spacing: .5px; }
+.qq-card-copy { padding: 7px 16px; font-size: 13px; }
+.qq-empty { text-align: center; color: var(--faint); font-size: 13px; padding: 26px 0 10px; }
 
 /* ===== 赞助 · 名录申请 ===== */
 .sponsor-sheet { max-width: 460px; }

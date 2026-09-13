@@ -72,7 +72,6 @@ const app = Vue.createApp({
 
       // ---- 共建者名录 ----
       showContributors: false,
-      qqOpen: false,
       qqData: null,
       qqTs: 0,
       contributorsLoading: false,
@@ -303,6 +302,7 @@ const app = Vue.createApp({
       if (!fromHash) location.hash = view === 'hall' ? '#/' : '#/' + view;
       if (view === 'hall') this.reloadHall();
       if (view === 'trips') this.loadMine();
+      if (view === 'qq') this.loadQQData();
       window.scrollTo(0, 0);
     },
 
@@ -326,7 +326,7 @@ const app = Vue.createApp({
         if (this.view !== 'detail' || this.tripId !== id) this.openTrip(id, true);
         return;
       }
-      const v = ['publish', 'menu', 'trips', 'about', 'guide', 'legal'].indexOf(h) > -1 ? h : 'hall';
+      const v = ['publish', 'menu', 'trips', 'about', 'qq', 'guide', 'legal'].indexOf(h) > -1 ? h : 'hall';
       if (this.view !== v) this.go(v, true);
     },
 
@@ -584,9 +584,10 @@ const app = Vue.createApp({
       }
     },
 
-    // QQ 频道（bot + 多群）：/api/qq 为唯一数据源，/manage 维护
-    openQQ() {
-      this.qqOpen = true;
+    // QQ 频道独立页（bot + 多群）：/api/qq 为唯一数据源，/manage 维护
+    openQQ() { this.go('qq'); },
+
+    loadQQData() {
       fetch('/api/qq').then((r) => r.json()).then((d) => {
         this.qqData = d || null;
         this.qqTs = Date.now();
@@ -866,7 +867,7 @@ const app = Vue.createApp({
 
     if (h.indexOf('trip/') === 0) {
       this.openTrip(h.slice(5), true);
-    } else if (['publish', 'menu', 'trips', 'about', 'guide', 'legal'].indexOf(h) > -1) {
+    } else if (['publish', 'menu', 'trips', 'about', 'qq', 'guide', 'legal'].indexOf(h) > -1) {
       // 走 go()，使「行程历史」的认证判断同样生效
       this.go(h, true);
     } else if (!guideSeen) {
