@@ -104,13 +104,13 @@ async function qqSend(url, body) {
 // GET /v2/panels 列不出全局面板 → panel_id 持久化在 .panel_id 文件，remark 兜底。
 const QUICK_MENU = {
   items: [
+    { type: "link", name: "网页版", link: "https://bhtx.prom1se.cn" },
+    { type: "send_message", name: "帮助", send_message: "帮助" },
     { type: "send_message", name: "我要拼车", send_message: "我要拼车" },
     { type: "send_message", name: "查行程", send_message: "查 " },
     { type: "send_message", name: "我的行程", send_message: "我的" },
     { type: "send_message", name: "退出", send_message: "退出" },
-    { type: "send_message", name: "绑定学号", send_message: "绑定 " },
-    { type: "send_message", name: "帮助", send_message: "帮助" },
-    { type: "link", name: "网页版", link: "https://bhtx.prom1se.cn" }
+    { type: "send_message", name: "绑定学号", send_message: "绑定 " }
   ]
 };
 const QUICK_PANEL_ITEMS = [
