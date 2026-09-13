@@ -21,7 +21,7 @@ const ok = (name, cond, got) => {
 const today = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10); // CST 日期近似
 
 // —— 别名归一（用户指定的四组）——
-let p = M.parsePublish("今天下午11点 万达到地铁站");
+let p = M.parsePublish("明天晚上十一点 万达到地铁站");
 ok("万达/地铁站→标准名", p && p.from === "乐多港万达" && p.to === "昌平西山口", p);
 p = M.parsePublish("明天下午四点 北京化工大学到北京南站");
 ok("北京化工大学→北化北区", p && p.from === "北化北区" && p.to === "北京南站", p);

@@ -104,7 +104,7 @@ async function qqSend(url, body) {
 // GET /v2/panels 列不出全局面板 → panel_id 持久化在 .panel_id 文件，remark 兜底。
 const QUICK_MENU = {
   items: [
-    { type: "send_message", name: "我要拼车", send_message: "明天下午四点 北化北区到北京南站" },
+    { type: "send_message", name: "我要拼车", send_message: "我要拼车" },
     { type: "send_message", name: "查行程", send_message: "查 " },
     { type: "send_message", name: "我的行程", send_message: "我的" },
     { type: "send_message", name: "退出", send_message: "退出" },
@@ -497,6 +497,20 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
   }
 
   if (/^(帮助|菜单|功能|指令|命令|help)$/i.test(t)) return reply(HELP_TEXT);
+
+  // 裸指令（快捷按钮点入、或用户只打了一个词）：不猜意图，直接给用法。
+  // 「我要拼车」只负责发起会话——示例句放在机器人指引里，绝不预填进输入框（防止顺手发出假行程）
+  const PUBLISH_HINT = "说一下时间和路线就行，例如：明天下午四点 北化北区到北京南站\n我会先列成待确认，回复「确认」才真正发布";
+  const BARE_USAGE = {
+    "我要拼车": PUBLISH_HINT,
+    "发布": PUBLISH_HINT,
+    "拼车": PUBLISH_HINT,
+    "加入": "用法：加入 行程号（9 位数字）\n先「查 明天」或「我的」看到行程号；查询结果里回复「加入 序号」也可以",
+    "完成": "用法：完成 行程号（发起人操作，出发时间之后才能标记，成员会收到结算通知）",
+    "车费": "用法：车费 行程号 金额（同车任一成员可填，如：车费 260914001 60）",
+    "通知": "用法：通知 行程号（私聊提醒同车成员；出发前 1 小时我也会自动提醒）"
+  };
+  if (BARE_USAGE[t.trim()]) return reply(BARE_USAGE[t.trim()]);
 
   if (isDM && /^解除绑定/.test(t)) {
     const who = await whoami(uid);
