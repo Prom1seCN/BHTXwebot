@@ -428,7 +428,7 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
     return reply("联系方式已保存，仅同车成员可见，发布行程时默认使用。");
   }
 
-  if (/^(确认|确认发布)$/.test(t)) {
+  if (/^(确认|确认发布|确定|确定发布|好)$/.test(t)) {
     const p = s.pending;
     if (!p) return reply("当前没有待发布的行程");
     if (p.uid !== uid) return reply("该确认仅限发起发布的人操作");
@@ -458,7 +458,7 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
     return reply(out);
   }
 
-  if (/^取消$/.test(t)) {
+  if (/^取消(\s*\d{1,9})?$/.test(t)) {
     let acted = false;
     if (s.pending) { if (s.pending.uid && s.pending.uid !== uid) return reply("该操作仅限发起发布的人操作"); s.pending = null; acted = true; }
     if (s.pendingExit) { s.pendingExit = null; acted = true; }
@@ -677,6 +677,23 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
     [].concat(q.fromList || [], q.toList || [], q.anyList || []).forEach((l) => parts.push(l));
     const cmd = ("查 " + parts.join(" ")).trim();
     return handleCommand(cmd, ctxKey, reply, uid, isDM);
+  }
+
+  // 纯数字直选：有待退出列表 → 退出该项；有查询结果 → 加入该项
+  if (/^\d{1,9}$/.test(t)) {
+    const n = parseInt(t, 10);
+    const pe = s.pendingExit;
+    if (pe && pe.list && pe.list.length) {
+      const trip = pe.list[n - 1];
+      if (!trip) return reply(`序号超出范围，可用 1 至 ${pe.list.length}`);
+      s.pendingExit = null;
+      const r = await proxy(uid, "POST", `/trips/${trip.id || trip._id}/leave`, {});
+      if (r.status !== 200) return reply(apiMsg(r));
+      return reply(`已退出 ${trip.tripNo ? "#" + trip.tripNo + " " : ""}${fmtCN(trip.date)} ${trip.time} ${trip.from} → ${trip.to}`);
+    }
+    if (s.results && s.results.length) {
+      return handleCommand("加入 " + n, ctxKey, reply, uid, isDM);
+    }
   }
 
   // 其余消息：先按发布意图解析；规则失效且已配置 LLM 时，交由 LLM 兜底理解
