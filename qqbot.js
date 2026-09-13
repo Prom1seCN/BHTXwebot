@@ -285,7 +285,7 @@ const HELP_TEXT = [
   "取消行程  发起人：取消行程 行程号",
   "车费  成员填写：车费 行程号 金额",
   "通知  提醒同车成员：通知 行程号",
-  "播报  手动群播报，每日 2 次",
+  "播报  手动播报我的行程，每日 2 次",
   "绑定  私聊发送：绑定 学号",
   "解绑  私聊发送：解除绑定",
   "联系  私聊发送：联系方式 微信号",
@@ -565,18 +565,23 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
   }
 
   if (/^播报$/.test(t)) {
+    // 先取内容（不消耗次数）：仅该用户发布或加入的行程
+    const who = await whoami(uid);
+    if (!who || !who.bound) return reply(BIND_HINT);
+    const prof = await proxy(uid, "GET", "/user/profile");
+    const myOpenid = prof.status === 200 ? prof.data.openid : "";
+    if (!myOpenid) return reply(BIND_HINT);
+    const r = await internal("broadcast-today", { force: true, openid: myOpenid });
+    if (r.status !== 200) return reply("发送失败，请稍后再试");
+    if (!r.data.content) return reply("你今日暂无待出行程，无需播报");
     const q = await internal("manual-broadcast", { qqOpenid: uid });
-    if (q.status === 404) return reply(BIND_HINT);
     if (q.status === 429) return reply("今日手动播报次数已用完，每天有 2 次机会，明天再来。");
     if (q.status !== 200) return reply("发送失败，请稍后再试");
-    const r = await internal("broadcast-today", { slot: "manual", force: true });
-    if (r.status !== 200) return reply("发送失败，请稍后再试");
-    if (!r.data.content) return reply("今日暂无待出行程，无需播报");
     for (const g of (r.data.groups || [])) {
       await sendGroupProactive(g, r.data.content);
       await sleep(600);
     }
-    return reply(`已向全部群发送今日播报，今日剩余 ${q.data.remaining} 次。`);
+    return reply(`已向全部群发送你的行程播报，今日剩余 ${q.data.remaining} 次。`);
   }
 
   // 其余消息：尝试按发布意图解析

@@ -1951,17 +1951,20 @@ app.post("/api/internal/qq/broadcast-today", internalGuard, async (req, res) => 
     const body = req.body || {};
     const slot = String(body.slot || "");
     const force = !!body.force; // 手动播报：忽略槽位去重，发全部群且不占用槽位标记
+    const openid = String(body.openid || ""); // 传入时仅播报该用户发布或加入的行程
     if (!SLOTS.includes(slot) && !force) return res.status(400).json({ message: "无效播报时段" });
     const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10); // UTC+8 自然日
     const mark = today + "-" + slot;
     const groups = force || slot === "manual"
       ? await QQGroup.find({}).select("groupOpenid").lean()
       : await QQGroup.find({ lastBroadcastSlot: { $ne: mark } }).select("groupOpenid").lean();
-    const trips = await Trip.find({ date: today, status: { $in: ["active", "full"] } })
-      .select("from to date time capacity headcount tripNo").sort({ time: 1 }).lean();
-    const upcoming = trips.filter((t) => {
+    let upcoming = await Trip.find({ date: today, status: { $in: ["active", "full"] } })
+      .select("from to date time capacity headcount members openid tripNo").sort({ time: 1 }).lean();
+    upcoming = upcoming.filter((t) => {
       const dep = buildTripDateTime(t);
-      return dep && dep.getTime() > Date.now();
+      if (!dep || dep.getTime() <= Date.now()) return false;
+      if (openid) return t.openid === openid || (t.members || []).some((m) => m.openid === openid);
+      return true;
     });
     let content = null;
     if (upcoming.length) {
@@ -1969,7 +1972,8 @@ app.post("/api/internal/qq/broadcast-today", internalGuard, async (req, res) => 
         const left = (t.capacity || 4) - 1 - (t.headcount || 0);
         return `${i + 1}. #${t.tripNo || ""} ${t.time} ${t.from} → ${t.to}，余 ${left} 位`;
       });
-      content = `【百花同行 · 行程播报】\n${lines.join("\n")}\n上车请@我「加入 行程号」；发布行程直接@我说时间和路线。\n网页版：bhtx.prom1se.cn`;
+      const head = openid ? `你今日的行程 ${upcoming.length} 班` : `今日出行 ${upcoming.length} 班`;
+      content = `【百花同行 · ${head}】\n${lines.join("\n")}\n上车请@我「加入 行程号」；发布行程直接@我说时间和路线。\n网页版：bhtx.prom1se.cn`;
     }
     if (!force) await QQGroup.updateMany({ lastBroadcastSlot: { $ne: mark } }, { lastBroadcastSlot: mark });
     res.json({ content, groups: groups.map((g) => g.groupOpenid) });
