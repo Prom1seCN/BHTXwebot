@@ -445,7 +445,7 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
       );
     }
     s.pending = null;
-    const r = await proxy(uid, "POST", "/trips", { from: p.from, to: p.to, date: p.date, time: p.time, capacity: 4 });
+    const r = await proxy(uid, "POST", "/trips", { from: p.from, to: p.to, date: p.date, time: p.time, capacity: 3 });
     if (r.status !== 200) return reply(apiMsg(r));
     const trip = (r.data && r.data.trip) || {};
     let out = `已发布 ${trip.tripNo ? "#" + trip.tripNo : ""}\n${fmtCN(trip.date)} ${trip.time} ${trip.from} → ${trip.to}\n默认再拼 2 人。有新同行者时我将私聊通知你。`;

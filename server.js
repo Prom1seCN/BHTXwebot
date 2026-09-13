@@ -186,7 +186,7 @@ const tripSchema = new mongoose.Schema({
   // —— 拼车撮合字段（V1.3 新增）——
   // 容量口径（v3.0.0 定稿）：capacity = 乘客容量（不含司机）。3 = 发起者+2（发布后 1/3，加入 2 人满 3/3）；
   // 4 = 发起者+3（1/4，满 4/4）。当前乘客 x = headcount + 1（发起者占 1 位）；满员 = headcount 达 capacity - 1。
-  capacity: { type: Number, default: 4 },    // 总席位（司机1 + 同学数），拼2个=4，拼1个=3
+  capacity: { type: Number, default: 3 },    // 乘客容量，默认 3 = 发起者+2（与发布接口默认一致）
   headcount: { type: Number, default: 0 },   // 已加入同行者数（不含发起人）
   organizerRole: {
     type: String,
