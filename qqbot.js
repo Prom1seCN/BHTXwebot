@@ -352,7 +352,7 @@ const SESSION_TTL = 10 * 60 * 1000;
 
 function session(key) {
   let s = sessions.get(key);
-  if (!s) { s = { results: [], myJoined: [], pending: null, pendingUnbind: false, ts: Date.now() }; sessions.set(key, s); }
+  if (!s) { s = { results: [], myJoined: [], myOrganized: [], pending: null, pendingUnbind: false, ts: Date.now() }; sessions.set(key, s); }
   s.ts = Date.now();
   return s;
 }
@@ -374,7 +374,7 @@ const HELP_TEXT = [
   "退出  退出 / 退出 行程号 / 退出 序号",
   "我的  进行中的行程；私聊附同行人联系方式",
   "完成  发起人标记完成：完成 行程号",
-  "取消行程  发起人：取消行程 行程号",
+  "取消  发起人：取消 行程号，或先「我的」后取消 序号",
   "车费  成员填写：车费 行程号 金额",
   "通知  提醒同车成员：通知 行程号",
   "播报  我的行程发到机器人所在全部群（每日 2 次）",
@@ -502,7 +502,28 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
     return reply(out);
   }
 
-  if (/^取消(\s*\d{1,9})?$/.test(t)) {
+  // 取消行程：`取消/取消行程 + 9位行程号`（全局直选）或 `取消 + 1-2位序号`（「我的」中"我发起的"列表）
+  const cxm = t.match(/^(?:取消行程|取消)\s*(\d{1,9})$/);
+  if (cxm) {
+    let target = null;
+    if (cxm[1].length >= 3) {
+      const lk = await lookupTrip(cxm[1], uid);
+      if (lk.error) return reply(lk.error);
+      if (!lk.isOrganizer) return reply("只有发起人可以取消行程");
+      target = { id: lk.trip._id, tripNo: lk.trip.tripNo };
+    } else {
+      const list = s.myOrganized || [];
+      if (!list.length) return reply("请先发送「我的」查看进行中的行程，或直接「取消 行程号」");
+      const hit = list[parseInt(cxm[1], 10) - 1];
+      if (!hit) return reply(`序号超出范围，可用 1 至 ${list.length}`);
+      target = { id: hit._id || hit.id, tripNo: hit.tripNo };
+    }
+    const r = await proxy(uid, "PUT", `/trips/${target.id}/status`, { action: "cancel" });
+    if (r.status !== 200) return reply(apiMsg(r));
+    return reply(`已取消行程 #${target.tripNo}，成员将收到通知。`);
+  }
+
+  if (/^取消$/.test(t)) {
     let acted = false;
     if (s.pending) { if (s.pending.uid && s.pending.uid !== uid) return reply("该操作仅限发起发布的人操作"); s.pending = null; acted = true; }
     if (s.pendingExit) { s.pendingExit = null; acted = true; }
@@ -550,6 +571,7 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
     const org = [], joined = [];
     trips.forEach((x) => (x.isOrganizer ? org : joined).push(x));
     s.myJoined = joined;
+    s.myOrganized = org;
     const f = (x) => `${x.tripNo ? "#" + x.tripNo + " " : ""}${fmtCN(x.date)} ${x.time} ${x.from} → ${x.to}，${(x.headcount || 0) + 1}/${x.capacity || 3} 人${x.isFull ? "，已满" : ""}`;
     // 私聊附同行人及联系方式（与网页详情页同口径）；群聊一律不显示
     const withContacts = async (x) => {
@@ -664,16 +686,6 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
     const r = await proxy(uid, "PUT", `/trips/${lk.trip._id}/status`, { action: "complete" });
     if (r.status !== 200) return reply(apiMsg(r));
     return reply(`已标记完成 #${lk.trip.tripNo}。已填车费的行程将向成员发送结算通知。`);
-  }
-
-  const cx = t.match(/^取消行程\s*(\d{9})$/);
-  if (cx) {
-    const lk = await lookupTrip(cx[1], uid);
-    if (lk.error) return reply(lk.error);
-    if (!lk.isOrganizer) return reply("只有发起人可以取消行程");
-    const r = await proxy(uid, "PUT", `/trips/${lk.trip._id}/status`, { action: "cancel" });
-    if (r.status !== 200) return reply(apiMsg(r));
-    return reply(`已取消行程 #${lk.trip.tripNo}，成员将收到通知。`);
   }
 
   const fee = t.match(/^车费\s*(\d{9})\s+(\d+(?:\.\d{1,2})?)$/);
@@ -953,7 +965,7 @@ function sessionTrips(s) {
   // 会话中用户可见的行程（结构化字段，不含备注等自由文本——LLM 不可见不可注入）
   const list = [];
   const seen = new Set();
-  for (const key of ["pendingExit", "results", "myJoined"]) {
+  for (const key of ["pendingExit", "results", "myJoined", "myOrganized"]) {
     for (const x of (s[key] || [])) {
       const id = String(x.id || x._id || "");
       const no = x.tripNo || "";
