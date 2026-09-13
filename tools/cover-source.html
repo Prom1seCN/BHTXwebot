@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<!-- 公众号封面（2:1，1200x600@2x）：复刻关于页顶部。渲染：
+     node tools/shot.js '[{"name":"cover","url":"/cover-source.html","w":1200,"h":600,"wait":800}]' --base=file:///D:/Projects/BHTXweb/tools
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1200px; height: 600px; overflow: hidden; }
+  body {
+    background: linear-gradient(180deg, #FFFFFF 0%, #F4F7FB 100%);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", sans-serif;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .brand { display: flex; align-items: center; gap: 46px; }
+  .logo { width: 150px; height: 150px; object-fit: contain; flex: 0 0 150px; }
+  .stack { display: flex; flex-direction: column; align-items: flex-start; gap: 20px; }
+  .line { display: flex; align-items: center; gap: 26px; }
+  .wordmark { height: 56px; width: auto; display: block; }
+  .divider { width: 2px; height: 52px; background: #D8E1EC; }
+  .slogan { font-size: 34px; font-weight: 500; color: #0080FF; letter-spacing: 1px; white-space: nowrap; }
+  .desc { font-size: 27px; color: #667085; letter-spacing: 2px; }
+</style>
+</head>
+<body>
+  <div class="brand">
+    <img class="logo" src="../public/logo.png" alt="">
+    <div class="stack">
+      <div class="line">
+        <img class="wordmark" src="../public/wordmark.png" alt="百花同行">
+        <div class="divider"></div>
+        <div class="slogan">不再一个人出发</div>
+      </div>
+      <div class="desc">北化校友共建的拼车平台</div>
+    </div>
+  </div>
+</body>
+</html>
