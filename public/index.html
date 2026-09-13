@@ -47,13 +47,16 @@
     <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M6.5 9.5l5.5 5.5 5.5-5.5"/></symbol>
     <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5.4L8 12l7 6.6"/></symbol>
     <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.6l4.6 4.6L19 7.4"/></symbol>
-    <symbol id="i-logout" viewBox="0 0 24 24">
-      <path d="M14.8 4.6h2.6a1.8 1.8 0 0 1 1.8 1.8v11.2a1.8 1.8 0 0 1-1.8 1.8h-2.6"/>
+    <symbol id="i-logout" viewBox="0 0 24 24">      <path d="M14.8 4.6h2.6a1.8 1.8 0 0 1 1.8 1.8v11.2a1.8 1.8 0 0 1-1.8 1.8h-2.6"/>
       <path d="M10.4 8.4L6.8 12l3.6 3.6M6.8 12H15"/>
     </symbol>
     <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
     <symbol id="i-clock" viewBox="0 0 24 24">
       <circle cx="12" cy="12" r="8.4"/><path d="M12 7.4V12l3.2 2"/>
+    </symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24">
+      <path d="M12 3.8c-4.6 0-8.4 3.4-8.4 7.6 0 2.4 1.2 4.5 3.1 5.9l-.8 3 3.3-1.7c.9.2 1.8.3 2.8.3 4.6 0 8.4-3.4 8.4-7.5S16.6 3.8 12 3.8z"/>
+      <path d="M8.6 11.4h.1M12 11.4h.1M15.4 11.4h.1"/>
     </symbol>
     <symbol id="i-shield" viewBox="0 0 24 24">
       <path d="M12 3.4l7 2.6v5.4c0 4.2-2.9 7.6-7 8.8-4.1-1.2-7-4.6-7-8.8V6z"/>
@@ -423,9 +426,6 @@
       <div class="link-row" @click="openExternal('https://prom1se.cn')">
         <span>开发者博客</span><span class="link-arrow">→</span>
       </div>
-      <div class="link-row" @click="openQQ">
-        <span>QQ机器人 &amp; QQ群</span><span class="link-arrow">→</span>
-      </div>
       <div class="link-row" @click="openSponsor">
         <span>赞助开发者</span><span class="link-arrow">→</span>
       </div>
@@ -555,7 +555,7 @@
   <!-- ===== QQ机器人 & QQ群（独立页）===== -->
   <main v-if="view==='qq'" class="page">
     <div class="page-head">
-      <button class="back" aria-label="返回" @click="go('about')">
+      <button class="back" aria-label="返回" @click="go('menu')">
         <svg class="back-ico" viewBox="0 0 24 24"><use href="#i-back"/></svg>
       </button>
     </div>

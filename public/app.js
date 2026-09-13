@@ -100,6 +100,7 @@ const app = Vue.createApp({
       menus: [
         { key: 'hall', label: '同行大厅' },
         { key: 'trips', label: '我的行程' },
+        { key: 'qq', label: 'QQ机器人 & QQ群' },
         { key: 'auth', label: '邮箱认证' },
         { key: 'guide', label: '使用教程' },
         { key: 'legal', label: '隐私政策与用户协议' },
@@ -137,15 +138,11 @@ const app = Vue.createApp({
 
   computed: {
     isLoggedIn() { return !!this.token; },
-    // 菜单项：邮箱认证后面缀当前认证状态
+    // 菜单项：邮箱认证后面缀当前认证状态（「退出登录」不在菜单里——桌面侧栏与手机菜单页的账号卡片各有一个）
     menuList() {
-      const base = this.menus.map((m) => m.key === 'auth'
+      return this.menus.map((m) => m.key === 'auth'
         ? Object.assign({}, m, { note: this.isLoggedIn ? '已认证' : '未认证' })
         : m);
-      // 登录后才有「退出登录」——桌面侧栏与手机菜单页共用这一份
-      return this.isLoggedIn
-        ? base.concat([{ key: 'logout', label: '退出登录', note: '' }])
-        : base;
     },
     // 出发地筛选是否落在「选择出发地」里（非常用地点）
     isOtherFrom() {
@@ -561,14 +558,13 @@ const app = Vue.createApp({
     // 菜单图标映射
     iconOf(key) {
       const map = {
-        hall: 'i-users', trips: 'i-clock', auth: 'i-shield',
-        guide: 'i-book', legal: 'i-file', about: 'i-info', logout: 'i-logout'
+        hall: 'i-users', trips: 'i-clock', qq: 'i-chat', auth: 'i-shield',
+        guide: 'i-book', legal: 'i-file', about: 'i-info'
       };
       return map[key] || 'i-info';
     },
 
     handleMenu(key) {
-      if (key === 'logout') { this.logout(); return; }
       if (key === 'hall') { this.go('hall'); return; }
       if (key === 'trips') {
         this.go('trips');
@@ -579,13 +575,10 @@ const app = Vue.createApp({
         this.showToast('邮箱已验证：' + this.email);
         return;
       }
-      if (key === 'guide' || key === 'legal' || key === 'about') {
+      if (key === 'guide' || key === 'legal' || key === 'about' || key === 'qq') {
         this.go(key);
       }
     },
-
-    // QQ 频道独立页（bot + 多群）：/api/qq 为唯一数据源，/manage 维护
-    openQQ() { this.go('qq'); },
 
     loadQQData() {
       fetch('/api/qq').then((r) => r.json()).then((d) => {
