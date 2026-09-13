@@ -161,6 +161,7 @@ qqbot 是薄壳：**不直连数据库、不复制撮合规则**。所有业务�
 - **`node --check` 查不出运行时错误**：服务端改动上线前必须运行时冒烟；**断言要核对落库结果**，不能只看 HTTP 码（曾：Mongoose 字段 `qqOpenId` 大小写不一致被 strict 静默丢弃、接口照样返回“成功”）
 - **批量文本替换必须 assert 命中次数**，禁止静默跳过（多行锚点易因换行差异失败，优先单行/标记定位）
 - **测试脚本清理只能按测试标识条件删除**，严禁 `deleteMany({})` 清空生产集合（曾误删共建者数据）
+- **数据备份**：`deploy/backup_mongo.sh`（服务器装在 `bhtxweb/backup_mongo.sh`，cron 每日 4:30/16:30）——mongodump 归档压缩存 `/home/ubuntu/backups/mongo/`，每份自动做「还原到 bhtxverify 验证库 → 计数 → 删除」的恢复演练，保留 14 天；日志 `backups/mongo/backup.log`
 - 部署：`tools/deploy.py <密码> <stage>`（recon/upload/start/verify/nginx-cut）；`tools/shot.js`（CDP 精确视口截图，外部站需 `--no-proxy-server`）、`tools/eval.js`（线上 DOM 求值）
 - QQ 机器人机制调研见 `docs/qqbot-research.md`
 
