@@ -114,10 +114,15 @@
 </div>
 
 <script>
-  var show = location.hash.slice(1) || 'quick-start';
-  document.querySelectorAll('.card').forEach(function (el) {
-    if (el.id === show) el.style.display = 'flex';
-  });
+  function showCard() {
+    var show = location.hash.slice(1) || 'quick-start';
+    document.querySelectorAll('.card').forEach(function (el) {
+      el.style.display = el.id === show ? 'flex' : 'none';
+    });
+  }
+  // 同一文档内只变 hash 的导航不会重跑脚本，必须监听 hashchange
+  window.addEventListener('hashchange', showCard);
+  showCard();
 </script>
 </body>
 </html>
