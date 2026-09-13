@@ -64,6 +64,12 @@
     <!-- ===== 共建者名录管理 ===== -->
     <section class="panel">
       <h3 class="panel-title">共建者名录 <span class="panel-sub">展示于关于页，可排序、隐藏、删除</span></h3>
+
+      <div v-if="false"></div>
+      <div id="pendingBox">
+        <div class="state-sm">加载中…</div>
+      </div>
+
       <div class="contrib-add">
         <input id="cName" class="dash-input" maxlength="20" placeholder="名字">
         <input id="cRole" class="dash-input" maxlength="30" placeholder="角色 / 贡献说明">

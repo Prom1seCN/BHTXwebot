@@ -445,6 +445,27 @@
             <span>支付宝</span>
           </div>
         </div>
+        <p class="sponsor-note">赞助为对开发者的无偿支持，不构成任何服务对价。</p>
+
+        <template v-if="!sponsorApplied">
+          <div class="sponsor-apply-sep">赞助后想加入共建者名录？</div>
+          <template v-if="!sponsorFormOpen">
+            <button class="btn-primary block" @click="sponsorFormOpen = true">我想加入共建者名录</button>
+          </template>
+          <template v-else>
+            <div class="sponsor-apply-hint">名字会展示在关于页的名录里，不要求与你的用户 ID 相同。提交后由开发者核实到账并展示。</div>
+            <input v-model.trim="applyName" class="sponsor-input" maxlength="20" placeholder="希望展示的名字">
+            <input v-model.trim="applyRole" class="sponsor-input" maxlength="30" placeholder="一句话介绍（可选）">
+            <input v-model.trim="applyRef" class="sponsor-input" maxlength="4" inputmode="numeric" placeholder="转账单号后四位（选填）">
+            <p v-if="applyError" class="err">{{ applyError }}</p>
+            <button class="btn-primary block" :disabled="applying" @click="submitSponsorApply">
+              {{ applying ? '提交中…' : '提交申请' }}
+            </button>
+            <button class="btn-text" @click="sponsorFormOpen = false">先不了</button>
+          </template>
+        </template>
+        <p v-else class="sponsor-applied">申请已收到，核实到账后会展示在共建者名录中。</p>
+
         <button class="btn-text" @click="sponsorOpen = false">关闭</button>
       </div>
     </div>

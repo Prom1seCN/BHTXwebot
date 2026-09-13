@@ -384,11 +384,15 @@ qqDailyQuotaSchema.index({ updatedAt: 1 }, { expireAfterSeconds: 2 * 86400 });
 const QQDailyQuota = mongoose.model("QQDailyQuota", qqDailyQuotaSchema);
 
 // ===== 共建者名录 =====
+// pending：赞助申请待审核（审核通过 pending/hidden 置 false 上名录；公开接口不返回 pending 条目）
 const contributorSchema = new mongoose.Schema({
   name: { type: String, required: true },
   role: { type: String, default: "" },
   link: { type: String, default: "" },
   hidden: { type: Boolean, default: false },
+  pending: { type: Boolean, default: false },
+  channel: { type: String, default: "" },
+  ref4: { type: String, default: "" },
   order: { type: Number, default: 0 }
 }, { timestamps: true });
 contributorSchema.index({ order: 1 });
@@ -2041,15 +2045,48 @@ app.get("/api/internal/qq/locations", internalGuard, (req, res) => {
 });
 
 // ===== 共建者名录 =====
-// 公开读（关于页展示，仅未隐藏条目）
+// 公开读（关于页展示，仅未隐藏且已过审条目）
 app.get("/api/contributors", async (req, res) => {
   try {
-    const list = await Contributor.find({ hidden: false })
+    const list = await Contributor.find({ hidden: false, pending: false })
       .sort({ order: 1, createdAt: 1 }).select("name role link").lean();
     res.json(list);
   } catch (err) {
     console.error("[contributor] 读取失败:", err.message);
     res.json([]);
+  }
+});
+
+// 赞助申请上名录（公开，限流防灌水：同 IP 每日 5 条）
+const applyLimiterMap = new Map();
+app.post("/api/contributors/apply", async (req, res) => {
+  try {
+    const ip = req.ip;
+    const today = new Date().toISOString().slice(0, 10);
+    const rec = applyLimiterMap.get(ip);
+    if (!rec || rec.date !== today) applyLimiterMap.set(ip, { date: today, count: 0 });
+    const entry = applyLimiterMap.get(ip);
+    if (entry.count >= 5) return res.status(429).json({ message: "提交过于频繁，请明天再试" });
+    entry.count++;
+
+    const b = req.body || {};
+    const name = String(b.name || "").trim().slice(0, 20);
+    if (!name) return res.status(400).json({ message: "请填写希望展示的名字" });
+    if (await Contributor.findOne({ name, pending: true })) {
+      return res.status(400).json({ message: "该名字已在审核队列中，请稍候" });
+    }
+    await Contributor.create({
+      name,
+      role: String(b.role || "").trim().slice(0, 30),
+      channel: b.channel === "alipay" ? "alipay" : b.channel === "wechat" ? "wechat" : "",
+      ref4: /^\d{1,4}$/.test(String(b.ref4 || "")) ? String(b.ref4) : "",
+      pending: true,
+      hidden: true
+    });
+    res.json({ message: "申请已收到，核实到账后会展示在共建者名录中" });
+  } catch (err) {
+    console.error("[contributor] 申请失败:", err.message);
+    res.status(500).json({ message: "服务器错误" });
   }
 });
 
@@ -2090,6 +2127,7 @@ app.put("/api/internal/contributors/:id", internalGuard, async (req, res) => {
     if (b.role !== undefined) update.role = String(b.role).trim().slice(0, 30);
     if (b.link !== undefined) update.link = String(b.link).trim().slice(0, 200);
     if (b.hidden !== undefined) update.hidden = !!b.hidden;
+    if (b.pending !== undefined) update.pending = !!b.pending;
     const doc = await Contributor.findByIdAndUpdate(req.params.id, update, { new: true }).lean();
     if (!doc) return res.status(404).json({ message: "条目不存在" });
     res.json(doc);

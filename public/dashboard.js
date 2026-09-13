@@ -245,6 +245,7 @@ async function loadContributors() {
   try {
     contributorsCache = await apiContributors('GET', '');
     renderContributors();
+    renderPending(contributorsCache);
   } catch (e) { /* 静默：密钥未输入时不加载 */ }
 }
 
@@ -367,4 +368,41 @@ async function deleteSponsor(type) {
     });
     loadSponsorStatus();
   } catch (e) { alert('删除失败'); }
+}
+
+/* ===== 赞助申请审核 ===== */
+function renderPending(all) {
+  const box = document.getElementById('pendingBox');
+  const pending = all.filter((x) => x.pending);
+  if (!pending.length) {
+    box.innerHTML = '<div class="state-sm">暂无待审核的赞助申请</div>';
+    return;
+  }
+  box.innerHTML = '<div class="pending-box"><div class="pending-head">待审核的赞助申请（' + pending.length + '）</div>' +
+    pending.map((p) => {
+      const ch = p.channel === 'alipay' ? '支付宝' : p.channel === 'wechat' ? '微信' : '未知渠道';
+      return '<div class="pending-item">' +
+        '<div class="pending-name">' + escAttr(p.name) + (p.role ? ' — ' + escAttr(p.role) : '') + '</div>' +
+        '<div class="pending-meta">渠道：' + ch + (p.ref4 ? ' · 单号后四：' + escAttr(p.ref4) : '') + ' · 提交于 ' + new Date(p.createdAt).toLocaleString('zh-CN') + '</div>' +
+        '<div class="pending-actions">' +
+        '<button class="btn-ghost" onclick="decideContributor(\'' + p._id + '\',true)">通过，上名录</button>' +
+        '<button class="contrib-btn del" onclick="decideContributor(\'' + p._id + '\',false)">拒绝</button>' +
+        '</div></div>';
+    }).join('') + '</div>';
+}
+
+async function decideContributor(id, approve) {
+  if (approve) {
+    if (!confirm('确认已核实到账，将其展示在共建者名录？')) return;
+    try {
+      await apiContributors('PUT', '/' + id, { pending: false, hidden: false });
+      await loadContributors();
+    } catch (e) { alert('操作失败'); }
+  } else {
+    if (!confirm('确认拒绝并删除该申请？')) return;
+    try {
+      await apiContributors('DELETE', '/' + id);
+      await loadContributors();
+    } catch (e) { alert('操作失败'); }
+  }
 }

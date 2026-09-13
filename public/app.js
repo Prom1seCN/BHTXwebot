@@ -86,6 +86,13 @@ const app = Vue.createApp({
 
       // ---- 赞助 ----
       sponsorOpen: false,
+      sponsorFormOpen: false,
+      sponsorApplied: false,
+      applyName: '',
+      applyRole: '',
+      applyRef: '',
+      applyError: '',
+      applying: false,
 
       // ---- 发布 ----
       form: {
@@ -796,6 +803,31 @@ const app = Vue.createApp({
 
     hideSponsorItem(e) {
       if (e.target && e.target.parentNode) e.target.parentNode.style.display = 'none';
+    },
+
+    async submitSponsorApply() {
+      this.applyError = '';
+      if (!this.applyName) { this.applyError = '请填写希望展示的名字'; return; }
+      this.applying = true;
+      try {
+        const res = await fetch('/api/contributors/apply', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: this.applyName,
+            role: this.applyRole,
+            ref4: this.applyRef,
+            channel: 'web'
+          })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.status !== 200) { this.applyError = data.message || '提交失败，请稍后再试'; return; }
+        this.sponsorApplied = true;
+      } catch (e) {
+        this.applyError = '提交失败，请稍后再试';
+      } finally {
+        this.applying = false;
+      }
     }
   },
 
