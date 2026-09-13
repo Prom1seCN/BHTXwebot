@@ -279,8 +279,13 @@ const HELP_TEXT = [
   "　　　如：明天下午四点 北化北区到北京南站",
   "查询  查 明天 / 查 明天 北化北区",
   "加入  加入 行程号 或 序号",
-  "退出  退出 行程号 或 序号",
+  "退出  退出 / 退出 行程号 / 退出 序号",
   "我的  查看进行中的行程",
+  "完成  发起人标记完成：完成 行程号",
+  "取消行程  发起人：取消行程 行程号",
+  "车费  成员填写：车费 行程号 金额",
+  "通知  提醒同车成员：通知 行程号",
+  "播报  手动群播报，每日 2 次",
   "绑定  私聊发送：绑定 学号",
   "解绑  私聊发送：解除绑定",
   "联系  私聊发送：联系方式 微信号",
@@ -306,6 +311,14 @@ function clean(t) {
 }
 
 // ===== 指令分发 =====
+// 行程号反查（完成/取消行程/车费/通知共用）
+async function lookupTrip(no, uid) {
+  const r = await internal("trip-lookup", { tripNo: no, actorOpenid: uid });
+  if (r.status === 404) return { error: `没找到行程号 ${no}` };
+  if (r.status !== 200) return { error: "查询失败，请稍后再试" };
+  return { trip: r.data.trip, isOrganizer: r.data.isOrganizer, isMember: r.data.isMember };
+}
+
 async function handleCommand(raw, ctxKey, reply, uid, isDM) {
   const t = raw;
   const s = session(ctxKey);
@@ -381,12 +394,12 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
     );
   }
 
-  if (/^取消/.test(t)) {
-    const p = s.pending;
-    if (p && p.uid !== uid) return reply("该操作仅限发起发布的人操作");
-    if (!p) return reply("当前没有待发布的行程");
-    s.pending = null;
-    return reply("已取消");
+  if (/^取消$/.test(t)) {
+    let acted = false;
+    if (s.pending) { if (s.pending.uid && s.pending.uid !== uid) return reply("该操作仅限发起发布的人操作"); s.pending = null; acted = true; }
+    if (s.pendingExit) { s.pendingExit = null; acted = true; }
+    if (s.pendingUnbind) { s.pendingUnbind = false; acted = true; }
+    return reply(acted ? "已取消" : "当前没有可取消的操作");
   }
 
   if (/^(查|查询|找)/.test(t)) {
@@ -464,7 +477,12 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
   if (lm) {
     const num = lm[2];
     let trip = null;
-    if (num.length >= 3) {
+    const pe = s.pendingExit;
+    if (pe && pe.list && pe.list.length) {
+      trip = pe.list[parseInt(num, 10) - 1];
+      if (!trip) return reply(`序号超出范围，可用 1 至 ${pe.list.length}`);
+      s.pendingExit = null;
+    } else if (num.length >= 3) {
       let trips = [];
       try {
         const r = await proxy(uid, "GET", "/mytrips/active");
@@ -483,6 +501,82 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
     const r = await proxy(uid, "POST", `/trips/${trip.id || trip._id}/leave`, {});
     if (r.status !== 200) return reply(apiMsg(r));
     return reply(`已退出 ${trip.tripNo ? "#" + trip.tripNo + " " : ""}${fmtCN(trip.date)} ${trip.time} ${trip.from} → ${trip.to}`);
+  }
+
+  if (/^(退出|下车)$/.test(t)) {
+    const r = await proxy(uid, "GET", "/mytrips/active");
+    if (r.status !== 200) return reply(apiMsg(r));
+    const trips = (r.data && r.data.trips) || [];
+    if (!trips.length) return reply("你没有进行中的行程");
+    s.pendingExit = { list: trips, uid };
+    return reply(
+      "要退出的行程：\n" +
+      trips.map((x, i) => `${i + 1}. ${x.tripNo ? "#" + x.tripNo + " " : ""}${fmtCN(x.date)} ${x.time} ${x.from} → ${x.to}${x.isOrganizer ? " · 发起" : ""}`).join("\n") +
+      "\n回复序号退出，回复「取消」放弃"
+    );
+  }
+
+  // 行程号反查（完成/取消行程/车费/通知共用）
+  const cm = t.match(/^完成\s*(\d{9})$/);
+  if (cm) {
+    const lk = await lookupTrip(cm[1], uid);
+    if (lk.error) return reply(lk.error);
+    if (!lk.isOrganizer) return reply("只有发起人可以标记完成");
+    const r = await proxy(uid, "PUT", `/trips/${lk.trip._id}/status`, { action: "complete" });
+    if (r.status !== 200) return reply(apiMsg(r));
+    return reply(`已标记完成 #${lk.trip.tripNo}。已填车费的行程将向成员发送结算通知。`);
+  }
+
+  const cx = t.match(/^取消行程\s*(\d{9})$/);
+  if (cx) {
+    const lk = await lookupTrip(cx[1], uid);
+    if (lk.error) return reply(lk.error);
+    if (!lk.isOrganizer) return reply("只有发起人可以取消行程");
+    const r = await proxy(uid, "PUT", `/trips/${lk.trip._id}/status`, { action: "cancel" });
+    if (r.status !== 200) return reply(apiMsg(r));
+    return reply(`已取消行程 #${lk.trip.tripNo}，成员将收到通知。`);
+  }
+
+  const fee = t.match(/^车费\s*(\d{9})\s+(\d+(?:\.\d{1,2})?)$/);
+  if (fee) {
+    const lk = await lookupTrip(fee[1], uid);
+    if (lk.error) return reply(lk.error);
+    if (!lk.isMember) return reply("加入行程后才能填写车费");
+    const r = await proxy(uid, "PUT", `/trips/${lk.trip._id}/cost`, { actualCost: Number(fee[2]) });
+    if (r.status !== 200) return reply(apiMsg(r));
+    return reply(`已记录 #${lk.trip.tripNo} 车费 ${r.data.actualCost} 元，人均 ${r.data.perPerson} 元。`);
+  }
+
+  const nm = t.match(/^通知\s*(\d{9})$/);
+  if (nm) {
+    const lk = await lookupTrip(nm[1], uid);
+    if (lk.error) return reply(lk.error);
+    if (!lk.isMember) return reply("加入行程后才能通知成员");
+    const r = await internal("notify-members", { tripId: lk.trip._id, actorOpenid: uid });
+    if (r.status === 403) return reply((r.data && r.data.message) || "请先加入行程");
+    if (r.status !== 200) return reply("发送失败，请稍后再试");
+    const list = (r.data && r.data.items) || [];
+    if (!list.length) return reply("行程内暂无其他已绑定 QQ 的成员");
+    for (const it of list) {
+      await sendC2CProactive(it.qqOpenid, it.text);
+      await sleep(400);
+    }
+    return reply(`已通知 ${list.length} 位成员。`);
+  }
+
+  if (/^播报$/.test(t)) {
+    const q = await internal("manual-broadcast", { qqOpenid: uid });
+    if (q.status === 404) return reply(BIND_HINT);
+    if (q.status === 429) return reply("今日手动播报次数已用完，每天有 2 次机会，明天再来。");
+    if (q.status !== 200) return reply("发送失败，请稍后再试");
+    const r = await internal("broadcast-today", { slot: "manual", force: true });
+    if (r.status !== 200) return reply("发送失败，请稍后再试");
+    if (!r.data.content) return reply("今日暂无待出行程，无需播报");
+    for (const g of (r.data.groups || [])) {
+      await sendGroupProactive(g, r.data.content);
+      await sleep(600);
+    }
+    return reply(`已向全部群发送今日播报，今日剩余 ${q.data.remaining} 次。`);
   }
 
   // 其余消息：尝试按发布意图解析

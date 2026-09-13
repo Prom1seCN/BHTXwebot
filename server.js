@@ -346,7 +346,7 @@ const JoinStat = mongoose.model("JoinStat", joinStatSchema);
 
 // ===== QQ 机器人支撑集合（v3.0.0：通知队列 / 提醒去重 / 群注册）=====
 const qqNotifySchema = new mongoose.Schema({
-  type: { type: String, enum: ["join", "leave", "cost"], required: true },
+  type: { type: String, enum: ["join", "leave", "cost", "cancel"], required: true },
   tripId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
   actorOpenid: { type: String, default: "" },
   actorName: { type: String, default: "" },
@@ -370,6 +370,16 @@ const qqGroupSchema = new mongoose.Schema({
   lastBroadcastSlot: { type: String, default: "" }  // 已播报标记：日期-时段（如 2026-09-13-09）
 });
 const QQGroup = mongoose.model("QQGroup", qqGroupSchema);
+
+// 手动群播报配额：每用户每日 2 次（TTL 2 天自动清理）
+const qqDailyQuotaSchema = new mongoose.Schema({
+  openid: { type: String, required: true },
+  date: { type: String, required: true },
+  count: { type: Number, default: 0 }
+}, { timestamps: true });
+qqDailyQuotaSchema.index({ openid: 1, date: 1 }, { unique: true });
+qqDailyQuotaSchema.index({ updatedAt: 1 }, { expireAfterSeconds: 2 * 86400 });
+const QQDailyQuota = mongoose.model("QQDailyQuota", qqDailyQuotaSchema);
 
 async function trackEvent(type, tripId, openid, extra = {}) {
   try {
@@ -1046,6 +1056,8 @@ app.put("/api/trips/:id/status", verifyToken, async (req, res) => {
         { $set: { "members.$[elem].status": "cancelled" } },
         { arrayFilters: [{ "elem.status": "joined" }] }
       );
+      // QQ 通知入队：行程取消 → 私聊全体成员（pull 端对 cancel 类型按全部出现过的成员解析）
+      try { await QQNotify.create({ type: "cancel", tripId: trip._id, actorOpenid: req.user.openid }); } catch (e) {}
     }
     trip.status = newStatus;
     await trip.save();
@@ -1758,7 +1770,7 @@ app.post("/api/internal/qq/notify-pull", internalGuard, async (req, res) => {
       const trip = await Trip.findById(n.tripId)
         .select("from to date time capacity headcount members openid actualCost tripNo").lean();
       if (!trip) continue;
-      const memberOpenids = [...new Set([trip.openid, ...trip.members.filter((m) => m.status === "joined").map((m) => m.openid)])]
+      const memberOpenids = [...new Set([trip.openid, ...trip.members.map((m) => m.openid)])]
         .filter((o) => o !== n.actorOpenid);
       if (!memberOpenids.length) continue;
       const users = await User.find({ openid: { $in: memberOpenids }, qqOpenId: { $nin: ["", null] } })
@@ -1772,6 +1784,8 @@ app.post("/api/internal/qq/notify-pull", internalGuard, async (req, res) => {
         text = `【百花同行】${n.actorName} 加入行程 ${label}${progress}。`;
       } else if (n.type === "leave") {
         text = `【百花同行】${n.actorName} 退出行程 ${label}${progress}。`;
+      } else if (n.type === "cancel") {
+        text = `【百花同行】行程 ${label} 已被发起人取消。`;
       } else if (n.type === "cost") {
         if (typeof trip.actualCost !== "number" || trip.actualCost <= 0) continue;
         const per = Math.ceil((trip.actualCost / ((trip.headcount || 0) + 1)) * 100) / 100;
@@ -1859,16 +1873,90 @@ app.post("/api/internal/qq/groups", internalGuard, async (req, res) => {
   }
 });
 
+// 行程号反查（qqbot 各指令用）：返回行程快照与操作者角色
+app.post("/api/internal/qq/trip-lookup", internalGuard, async (req, res) => {
+  try {
+    const { tripNo, actorOpenid: actorQQ } = req.body || {};
+    if (!tripNo) return res.status(400).json({ message: "参数缺失" });
+    const trip = await Trip.findOne({ tripNo })
+      .select("from to date time capacity headcount status openid members actualCost tripNo").lean();
+    if (!trip) return res.status(404).json({ message: "行程不存在" });
+    let actorOpenid = "";
+    if (actorQQ) {
+      const actor = await User.findOne({ qqOpenId: actorQQ }).select("openid").lean();
+      actorOpenid = actor ? actor.openid : "";
+    }
+    res.json({
+      trip,
+      isOrganizer: trip.openid === actorOpenid,
+      isMember: trip.openid === actorOpenid || (trip.members || []).some((m) => m.openid === actorOpenid && m.status === "joined")
+    });
+  } catch (err) {
+    console.error("[qq-internal] trip-lookup 失败:", err.message);
+    res.status(500).json({ message: "服务器错误" });
+  }
+});
+
+// 成员手动提醒：通知行程内除操作者外的其他成员（不限次数）
+app.post("/api/internal/qq/notify-members", internalGuard, async (req, res) => {
+  try {
+    const { tripId, actorOpenid } = req.body || {};
+    if (!tripId || !actorOpenid) return res.status(400).json({ message: "参数缺失" });
+    const actor = await User.findOne({ qqOpenId: actorOpenid }).select("openid displayName").lean();
+    if (!actor) return res.status(404).json({ code: "UNBOUND", message: "尚未绑定" });
+    const trip = await Trip.findById(tripId)
+      .select("from to date time capacity headcount members openid tripNo").lean();
+    if (!trip) return res.status(404).json({ message: "行程不存在" });
+    const isMember = trip.openid === actor.openid || (trip.members || []).some((m) => m.openid === actor.openid && m.status === "joined");
+    if (!isMember) return res.status(403).json({ message: "请先加入行程，才能通知成员" });
+    const label = `${trip.tripNo ? "#" + trip.tripNo + " · " : ""}${cnDate(trip.date)} ${trip.time} ${trip.from} → ${trip.to}`;
+    const memberOpenids = [...new Set([trip.openid, ...(trip.members || []).filter((m) => m.status === "joined").map((m) => m.openid)])]
+      .filter((o) => o !== actor.openid);
+    const users = await User.find({ openid: { $in: memberOpenids }, qqOpenId: { $nin: ["", null] } })
+      .select("qqOpenId").lean();
+    const text = `【百花同行】${actor.displayName || "同车成员"} 提醒你关注行程 ${label}，出发前请保持联系。`;
+    res.json({ items: users.map((u) => ({ qqOpenid: u.qqOpenId, text })), count: users.length });
+  } catch (err) {
+    console.error("[qq-internal] notify-members 失败:", err.message);
+    res.status(500).json({ message: "服务器错误" });
+  }
+});
+
+// 手动群播报配额：每用户每日 2 次
+app.post("/api/internal/qq/manual-broadcast", internalGuard, async (req, res) => {
+  try {
+    const { qqOpenid } = req.body || {};
+    if (!qqOpenid) return res.status(400).json({ message: "参数缺失" });
+    const user = await User.findOne({ qqOpenId: qqOpenid }).select("openid").lean();
+    if (!user) return res.status(404).json({ code: "UNBOUND", message: "尚未绑定" });
+    const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    const r = await QQDailyQuota.findOneAndUpdate(
+      { openid: user.openid, date: today },
+      { $inc: { count: 1 } },
+      { upsert: true, new: true }
+    );
+    if (r.count > 2) return res.status(429).json({ message: "今日手动播报次数已用完", remaining: 0 });
+    res.json({ ok: true, remaining: Math.max(0, 2 - r.count) });
+  } catch (err) {
+    console.error("[qq-internal] manual-broadcast 失败:", err.message);
+    res.status(500).json({ message: "服务器错误" });
+  }
+});
+
 // 每日四档播报（09/12/15/18 点，UTC+8；qqbot 到点触发）：仅播报当日尚未出发的行程，
 // 按群按时段去重（lastBroadcastSlot = 日期-时段）；无待发行程则不发送
 app.post("/api/internal/qq/broadcast-today", internalGuard, async (req, res) => {
   try {
     const SLOTS = ["09", "12", "15", "18"];
-    const slot = String((req.body || {}).slot || "");
-    if (!SLOTS.includes(slot)) return res.status(400).json({ message: "无效播报时段" });
+    const body = req.body || {};
+    const slot = String(body.slot || "");
+    const force = !!body.force; // 手动播报：忽略槽位去重，发全部群且不占用槽位标记
+    if (!SLOTS.includes(slot) && !force) return res.status(400).json({ message: "无效播报时段" });
     const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10); // UTC+8 自然日
     const mark = today + "-" + slot;
-    const groups = await QQGroup.find({ lastBroadcastSlot: { $ne: mark } }).select("groupOpenid").lean();
+    const groups = force || slot === "manual"
+      ? await QQGroup.find({}).select("groupOpenid").lean()
+      : await QQGroup.find({ lastBroadcastSlot: { $ne: mark } }).select("groupOpenid").lean();
     const trips = await Trip.find({ date: today, status: { $in: ["active", "full"] } })
       .select("from to date time capacity headcount tripNo").sort({ time: 1 }).lean();
     const upcoming = trips.filter((t) => {
@@ -1883,7 +1971,7 @@ app.post("/api/internal/qq/broadcast-today", internalGuard, async (req, res) => 
       });
       content = `【百花同行 · 行程播报】\n${lines.join("\n")}\n上车请@我「加入 行程号」；发布行程直接@我说时间和路线。\n网页版：bhtx.prom1se.cn`;
     }
-    await QQGroup.updateMany({ lastBroadcastSlot: { $ne: mark } }, { lastBroadcastSlot: mark });
+    if (!force) await QQGroup.updateMany({ lastBroadcastSlot: { $ne: mark } }, { lastBroadcastSlot: mark });
     res.json({ content, groups: groups.map((g) => g.groupOpenid) });
   } catch (err) {
     console.error("[qq-internal] broadcast-today 失败:", err.message);
