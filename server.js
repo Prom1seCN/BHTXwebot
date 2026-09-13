@@ -30,6 +30,8 @@ const nodemailer = require("nodemailer");
 const axios = require("axios");
 const jwt = require("jsonwebtoken");
 const rateLimit = require("express-rate-limit");
+const fs = require("fs");
+const path = require("path");
 const app = express();
 app.set('trust proxy', 1);
 
@@ -2125,6 +2127,44 @@ app.post("/api/internal/contributors/:id/move", internalGuard, async (req, res) 
     console.error("[contributor] 移动失败:", err.message);
     res.status(500).json({ message: "服务器错误" });
   }
+});
+
+// ===== 赞助收款码管理（dashboard 上传，关于页展示）=====
+const SPONSOR_TYPES = { wechat: "微信", alipay: "支付宝" };
+
+app.get("/api/internal/sponsor", internalGuard, (req, res) => {
+  const out = {};
+  for (const t of Object.keys(SPONSOR_TYPES)) {
+    const f = path.join("public", `sponsor-${t}.png`);
+    out[t] = { exists: fs.existsSync(f), mtime: fs.existsSync(f) ? fs.statSync(f).mtime.toLocaleString("zh-CN") : null };
+  }
+  res.json(out);
+});
+
+app.post("/api/internal/sponsor", internalGuard, (req, res) => {
+  try {
+    const { type, data } = req.body || {};
+    if (!SPONSOR_TYPES[type]) return res.status(400).json({ message: "无效类型" });
+    const buf = Buffer.from(String(data || ""), "base64");
+    if (!buf.length) return res.status(400).json({ message: "图片数据为空" });
+    if (buf.length > 3 * 1048576) return res.status(400).json({ message: "图片请小于 3MB" });
+    const isPng = buf[0] === 0x89 && buf[1] === 0x50;
+    const isJpg = buf[0] === 0xff && buf[1] === 0xd8;
+    if (!isPng && !isJpg) return res.status(400).json({ message: "仅支持 PNG/JPG 图片" });
+    fs.writeFileSync(path.join("public", `sponsor-${type}.png`), buf);
+    res.json({ message: "已更新", mtime: new Date().toLocaleString("zh-CN") });
+  } catch (err) {
+    console.error("[sponsor] 上传失败:", err.message);
+    res.status(500).json({ message: "服务器错误" });
+  }
+});
+
+app.delete("/api/internal/sponsor/:type", internalGuard, (req, res) => {
+  const t = req.params.type;
+  if (!SPONSOR_TYPES[t]) return res.status(400).json({ message: "无效类型" });
+  const f = path.join("public", `sponsor-${t}.png`);
+  if (fs.existsSync(f)) fs.unlinkSync(f);
+  res.json({ message: "已删除" });
 });
 
 app.listen(PORT, () => {

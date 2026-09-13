@@ -84,6 +84,9 @@ const app = Vue.createApp({
       contributorsLoading: false,
       contributors: [],
 
+      // ---- 赞助 ----
+      sponsorOpen: false,
+
       // ---- 发布 ----
       form: {
         from: '', fromCustom: '', to: '', toCustom: '',
@@ -789,6 +792,10 @@ const app = Vue.createApp({
         }
         this.contributorsLoading = false;
       }
+    },
+
+    hideSponsorItem(e) {
+      if (e.target && e.target.parentNode) e.target.parentNode.style.display = 'none';
     }
   },
 

@@ -810,3 +810,13 @@ button, .card, .chip, .link-row, .tab, .uid, .menu-cell { user-select: none; -we
 .contrib-link { font-size: 12px; color: var(--faint); text-decoration: none; margin-left: auto; }
 
 .card-foot .card-no { margin-left: auto; margin-right: 10px; font-size: 11.5px; }
+
+/* ===== 赞助弹层 ===== */
+.sponsor-sheet { max-width: 460px; }
+.sponsor-codes { display: flex; gap: 20px; justify-content: center; margin: 8px 0 6px; }
+.sponsor-item { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.sponsor-item img {
+  width: 150px; height: 150px; object-fit: contain;
+  border-radius: var(--r-sm); border: 1px solid var(--line); background: #fff;
+}
+.sponsor-item span { font-size: 12.5px; color: var(--muted); }

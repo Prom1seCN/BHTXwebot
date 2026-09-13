@@ -73,6 +73,23 @@
       <div id="contribList" class="contrib-admin"><div class="state-sm">加载中…</div></div>
     </section>
 
+    <!-- ===== 赞助收款码管理 ===== -->
+    <section class="panel">
+      <h3 class="panel-title">赞助入口 <span class="panel-sub">关于页「赞助开发者」展示的收款码，PNG/JPG ≤ 3MB</span></h3>
+      <div class="sponsor-admin">
+        <div class="sponsor-slot">
+          <div class="sponsor-slot-head"><b>微信收款码</b><span id="sp-state-wechat"></span></div>
+          <input type="file" accept="image/png,image/jpeg" onchange="uploadSponsor('wechat', this)">
+          <button class="contrib-btn del" onclick="deleteSponsor('wechat')">删除</button>
+        </div>
+        <div class="sponsor-slot">
+          <div class="sponsor-slot-head"><b>支付宝收款码</b><span id="sp-state-alipay"></span></div>
+          <input type="file" accept="image/png,image/jpeg" onchange="uploadSponsor('alipay', this)">
+          <button class="contrib-btn del" onclick="deleteSponsor('alipay')">删除</button>
+        </div>
+      </div>
+    </section>
+
     <p class="dash-note">数据说明：验证码 / 登录 / 改名事件自 2026-09-13 起记录；行程浏览仅统计登录用户；埋点保留 90 天；健康度中的「被加入」含加入后退出的行程。</p>
   </main>
 

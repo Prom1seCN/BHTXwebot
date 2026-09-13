@@ -32,3 +32,6 @@ HANDOVER.md
 # ===== 开发产物 =====
 shots/
 dom.html
+
+# 赞助收款码（含个人支付信息，绝不入库）
+public/sponsor-*.png

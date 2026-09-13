@@ -34,6 +34,7 @@ async function load() {
     current = data;
     renderAll(data);
     loadContributors();
+    loadSponsorStatus();
   } catch (e) {
     document.getElementById('updatedAt').textContent = '加载失败，请重试';
   }
@@ -321,4 +322,49 @@ async function moveContributor(id, dir) {
     await apiContributors('POST', '/' + id + '/move', { dir });
     await loadContributors();
   } catch (e) { alert('操作失败'); }
+}
+
+/* ===== 赞助收款码管理 ===== */
+async function loadSponsorStatus() {
+  try {
+    const res = await fetch('/api/internal/sponsor', { headers: { 'x-admin-key': getKey() } });
+    if (res.status !== 200) return;
+    const st = await res.json();
+    for (const t of ["wechat", "alipay"]) {
+      const el = document.getElementById('sp-state-' + t);
+      if (el) el.textContent = st[t] && st[t].exists ? ('已上传 ' + st[t].mtime) : '未上传';
+    }
+  } catch (e) { /* 静默 */ }
+}
+
+async function uploadSponsor(type, input) {
+  const f = input.files[0];
+  if (!f) return;
+  if (f.size > 3 * 1048576) { alert('图片请小于 3MB'); input.value = ''; return; }
+  const reader = new FileReader();
+  reader.onload = async () => {
+    const base64 = String(reader.result).split(',')[1];
+    try {
+      const res = await fetch('/api/internal/sponsor', {
+        method: 'POST',
+        headers: { 'x-admin-key': getKey(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, data: base64 })
+      });
+      if (res.status !== 200) { alert((await res.json()).message || '上传失败'); }
+      else { alert('已更新'); }
+      loadSponsorStatus();
+    } catch (e) { alert('上传失败'); }
+    input.value = '';
+  };
+  reader.readAsDataURL(f);
+}
+
+async function deleteSponsor(type) {
+  if (!confirm('确认删除该收款码？关于页将不再显示此入口。')) return;
+  try {
+    await fetch('/api/internal/sponsor/' + type, {
+      method: 'DELETE', headers: { 'x-admin-key': getKey() }
+    });
+    loadSponsorStatus();
+  } catch (e) { alert('删除失败'); }
 }
