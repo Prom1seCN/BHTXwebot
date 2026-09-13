@@ -557,10 +557,7 @@ app.post("/api/trips", publishLimiter, verifyToken, requireVerified, async (req,
     // 同路推荐：到达地点相同或相近（组内互为相近）且出发时间相差 1 小时内的其他进行中行程
     let recommendations = [];
     try {
-      const NEARBY = [
-        ["乐多港万达", "昌平西山口"],
-        ["昌平悦荟", "昌平区医院", "昌平站"]
-      ];
+      const NEARBY = LOC_DATA.nearbyGroups || [];
       const near = (a, b) => a === b || NEARBY.some((g) => g.includes(a) && g.includes(b));
       const depMin = (t) => {
         const p = String(t.time).split(":");
@@ -1413,24 +1410,23 @@ app.get("/api/stats/dashboard", async (req, res) => {
 // 设计原则：撮合规则只保留一份实现 —— proxy 按身份签发短期 JWT 并以伪 IP 自调用公开接口，
 // 认证 / 限流 / 防超卖等中间件与业务 handler 全量复用；qqbot 进程不直接读写业务集合。
 
-const LOCATIONS = [
-  "北化北区", "北化东区", "北化西区", "昌平西山口", "乐多港万达",
-  "昌平悦荟", "昌平区医院", "昌平北站", "南口镇", "首都机场",
-  "大兴机场", "北京南站", "北京西站", "北京站", "北京朝阳站",
-  "北京丰台站", "清河站/北京北站"
-];
-
-// 地点别名 → 库内标准名。权威源在此处，机器人启动时经 /locations 拉取。
-// 发布与查询在解析阶段都把别名归一为标准名，保证库内数据口径统一；
+// 地点库与匹配规则：唯一数据源为 public/locations.json（明文可编辑）。
+// 前端直接 fetch 该静态文件；qqbot 进程启动时读同一文件；本进程负责校验其结构。
+// 修改后：前端刷新即生效，本进程与 qqbot 需 pm2 reload。
+function loadLocData() {
+  const d = JSON.parse(fs.readFileSync(path.join(__dirname, "public", "locations.json"), "utf8"));
+  if (!Array.isArray(d.locations) || !d.locations.length) throw new Error("locations.json: locations 必须为非空数组");
+  if (!d.aliases || typeof d.aliases !== "object") throw new Error("locations.json: aliases 必须为对象");
+  for (const a of Object.values(d.aliases)) {
+    if (!d.locations.includes(a)) throw new Error(`locations.json: 别名目标 "${a}" 不在 locations 中`);
+  }
+  return d;
+}
+const LOC_DATA = loadLocData();
+const LOCATIONS = LOC_DATA.locations;
+// 别名 → 库内标准名。发布与查询在解析阶段归一，保证库内数据口径统一；
 // 别名之外的自由文本作为「自定义地点」原样存储（与网页版自定义输入一致）。
-const LOCATION_ALIASES = {
-  "昌平高铁站": "昌平北站", "昌平火车站": "昌平北站",
-  "西山口站": "昌平西山口", "西山口地铁站": "昌平西山口", "地铁站": "昌平西山口", "西山口": "昌平西山口",
-  "万达": "乐多港万达", "北京乐多港万达": "乐多港万达",
-  "北京化工大学": "北化北区", "北京化工大学昌平校区": "北化北区", "北京化工大学北区": "北化北区",
-  "北化": "北化北区", "学校": "北化北区",
-  "南站": "北京南站", "西站": "北京西站", "朝阳站": "北京朝阳站", "丰台站": "北京丰台站"
-};
+const LOCATION_ALIASES = LOC_DATA.aliases;
 
 // 由身份导出的稳定伪 IP（10.x 段）：使自调用走 express-rate-limit 的独立限流桶，
 // 避免 QQ 侧所有用户共享 127.0.0.1 的 IP 配额

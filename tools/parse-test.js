@@ -5,13 +5,12 @@ const path = require("path");
 const src = fs.readFileSync(path.join(__dirname, "..", "qqbot.js"), "utf8");
 const start = src.indexOf("// ===== 自然语言解析 =====");
 const end = src.indexOf("// ===== 会话");
-const region = src.slice(start, end)
-  .replace(/async function loadLocations[\s\S]*?\n}\n/, "async function loadLocations(){}\n");
+const region = src.slice(start, end);
 const factory = new Function(
-  "axios", "INTERNAL", "log",
+  "axios", "INTERNAL", "log", "require", "__dirname",
   "const DAY_MS = 86400000;" + region + "; return { parsePublish, parseQuery, scanLocations, parseCustomRoute };"
 );
-const M = factory(null, { base: "", key: "" }, () => {});
+const M = factory(null, { base: "", key: "" }, () => {}, require, path.join(__dirname, ".."));
 
 let pass = 0, fail = 0;
 const ok = (name, cond, got) => {

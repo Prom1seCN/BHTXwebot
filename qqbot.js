@@ -124,34 +124,20 @@ async function whoami(uid) {
 }
 
 // ===== 自然语言解析 =====
-// 地点库 + 别名表：启动时从 server.js 拉取（权威源），失败时用内置兜底（与前端 LOCATIONS 一致）
-let LOCATIONS = [
-  "北化北区", "北化东区", "北化西区", "昌平西山口", "乐多港万达",
-  "昌平悦荟", "昌平区医院", "昌平北站", "南口镇", "首都机场",
-  "大兴机场", "北京南站", "北京西站", "北京站", "北京朝阳站",
-  "北京丰台站", "清河站/北京北站"
-];
-let LOCATION_ALIASES = {
-  "昌平高铁站": "昌平北站", "昌平火车站": "昌平北站",
-  "西山口站": "昌平西山口", "西山口地铁站": "昌平西山口", "地铁站": "昌平西山口", "西山口": "昌平西山口",
-  "万达": "乐多港万达", "北京乐多港万达": "乐多港万达",
-  "北京化工大学": "北化北区", "北京化工大学昌平校区": "北化北区", "北京化工大学北区": "北化北区",
-  "北化": "北化北区", "学校": "北化北区",
-  "南站": "北京南站", "西站": "北京西站", "朝阳站": "北京朝阳站", "丰台站": "北京丰台站"
-};
-
-async function loadLocations() {
+// 地点库与匹配规则：唯一数据源 public/locations.json（server.js 读同一文件）；改后需重启本进程
+let LOCATIONS = [], LOCATION_ALIASES = {}, KW_GROUPS = {};
+function loadLocations() {
   try {
-    const r = await axios.get(`${INTERNAL.base}/locations`, {
-      headers: { "x-admin-key": INTERNAL.key }, timeout: 10000
-    });
-    if (r.status === 200 && Array.isArray(r.data.locations) && r.data.locations.length) {
-      LOCATIONS = r.data.locations;
-      if (r.data.aliases && typeof r.data.aliases === "object") LOCATION_ALIASES = r.data.aliases;
-      log(`地点库已加载（${LOCATIONS.length} 个，别名 ${Object.keys(LOCATION_ALIASES).length} 条）`);
-    }
-  } catch (e) { log("locations 拉取失败，使用内置列表"); }
+    const d = JSON.parse(require("fs").readFileSync(require("path").join(__dirname, "public", "locations.json"), "utf8"));
+    LOCATIONS = d.locations || [];
+    LOCATION_ALIASES = d.aliases || {};
+    KW_GROUPS = d.kwGroups || {};
+    log(`地点库已加载（${LOCATIONS.length} 个，别名 ${Object.keys(LOCATION_ALIASES).length} 条，关键词组 ${Object.keys(KW_GROUPS).length} 个）`);
+  } catch (e) {
+    log(`[FATAL] locations.json 加载失败：${e.message}（地点将全部按自定义处理）`);
+  }
 }
+loadLocations();
 
 const CN_MAP = { 零: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
 
@@ -326,14 +312,7 @@ function parseQuery(raw) {
     else { out.anyList = [uniq[0]]; }
     return out;
   }
-  const KW = [
-    ["机场", ["首都机场", "大兴机场"]],
-    ["南站", ["北京南站"]],
-    ["西站", ["北京西站"]],
-    ["朝阳站", ["北京朝阳站"]],
-    ["丰台", ["北京丰台站"]],
-    ["昌平北站", ["昌平北站"]]
-  ];
+  const KW = Object.entries(KW_GROUPS);
   for (const [kw, locs] of KW) {
     const idx = rest.indexOf(kw);
     if (idx === -1) continue;
@@ -1115,7 +1094,6 @@ function connect(useResume) {
 
 // 进程启动
 refreshAccessToken()
-  .then(() => loadLocations())
   .then(() => { connect(false); startPollers(); log("启动完成（指令/通知/提醒/播报 就绪）"); })
   .catch((e) => {
     log(`启动失败: ${describeApiError(e)}`);

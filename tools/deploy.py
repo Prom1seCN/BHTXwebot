@@ -93,6 +93,7 @@ def main():
             (LOCAL + "/public/logo.png", REMOTE + "/public/logo.png"),
             (LOCAL + "/public/wordmark.png", REMOTE + "/public/wordmark.png"),
             (LOCAL + "/public/manifest.json", REMOTE + "/public/manifest.json"),
+            (LOCAL + "/public/locations.json", REMOTE + "/public/locations.json"),
             (LOCAL + "/public/icon-32.png", REMOTE + "/public/icon-32.png"),
             (LOCAL + "/public/icon-180.png", REMOTE + "/public/icon-180.png"),
             (LOCAL + "/public/icon-192.png", REMOTE + "/public/icon-192.png"),

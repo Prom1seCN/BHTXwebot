@@ -127,7 +127,7 @@ MongoDB 库 `bhtxweb`，核心集合：
 发布、查询（含“有没有…的”“时段词”口语）、加入、退出（含无参列出我的行程供选择）、我的、完成、取消行程、车费、通知、播报、帮助（两列指令表）、绑定、解除绑定、联系方式。序号既支持会话序号（1、2…），也支持 9 位行程号直操作。所有“@回复”前置换行分隔。
 
 ### 智能分层（成本与确定性优先）
-1. **规则引擎**：结构化指令、中文时间（数字/中文数字/时段/星期/日期）解析、地点库精确+关键词模糊匹配（“机场”→首都/大兴）+ 别名归一（权威源 server.js `LOCATION_ALIASES`，如「万达」→乐多港万达、「北京化工大学」→北化北区）；库外地点按「A到B」切分作为自定义地点（与网页版自定义输入同口径）——零成本、确定、无幻觉
+1. **规则引擎**：结构化指令、中文时间（数字/中文数字/时段/星期/日期）解析、地点库精确+关键词模糊匹配（“机场”→首都/大兴）+ 别名归一（如「万达」→乐多港万达、「北京化工大学」→北化北区）；库外地点按「A到B」切分作为自定义地点（与网页版自定义输入同口径）——零成本、确定、无幻觉。地点库/别名/kw 组/同路相近组全部为明文数据 **`public/locations.json`**（唯一数据源：前端静态 fetch，server.js 与 qqbot.js 启动读同一文件，改动后 `pm2 reload` 生效；结构启动时校验）。回归用例：`node tools/parse-test.js`
 2. **会话序号 / 变体**：纯数字直选、确认变体
 3. **LLM 兜底**：仅规则完全失效时调用（智谱 GLM-4-Flash，免费）。**LLM 只有“耳朵”没有“嘴”**：只输出受限 JSON（意图 + 参数），代码三重校验（意图白名单 / 地点必须在库 / 时间必须合法未来）后走既有处理路径；LLM 永不生成用户可见内容
 4. **降级**：无关话题、解析失败、超时 → 固定引导文案
@@ -210,12 +210,13 @@ qqbot 是薄壳：**不直连数据库、不复制撮合规则**。所有业务�
 ├── dev-preview.js       # 无 DB 本地预览（mock）
 ├── public/              # 零构建前端
 │   ├── app.js / index.html / style.css     # 主站（大厅/发布/详情/我的/菜单/关于/教程/协议）
+│   ├── locations.json                      # 地点库+别名+kw组+同路相近组（唯一数据源，明文）
 │   ├── dashboard.html/js/css              # 数据看板
 │   ├── manage.html/js                      # 管理界面（复用 dashboard.css）
 │   └── wordmark.png / logo*.png / icon-*.png / manifest.json / vendor/
 ├── assets/              # README 素材（banner、看板截图）
 ├── deploy/              # ecosystem.config.js / deploy.sh / env.server(=服务器 .env 模板，gitignore)
-├── tools/               # deploy.py / shot.js / eval.js
+├── tools/               # deploy.py / shot.js / eval.js / parse-test.js（解析回归）
 ├── docs/                # qqbot-research.md 等
 ├── README.md            # 使用入口
 └── PROJECT.md           # 本文

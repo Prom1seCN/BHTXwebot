@@ -6,12 +6,7 @@
 const QQ_GROUP = '';
 
 // 地点库（与后端无关，仅用于表单选项）
-const LOCATIONS = [
-  '北化北区', '北化东区', '北化西区', '昌平西山口', '乐多港万达',
-  '昌平悦荟', '昌平区医院', '昌平北站', '南口镇', '首都机场',
-  '大兴机场', '北京南站', '北京西站', '北京站', '北京朝阳站',
-  '北京丰台站', '清河站/北京北站'
-];
+// 地点库：唯一数据源 public/locations.json（大厅筛选、发布选项在 mounted 拉取；自定义输入不受限制）
 
 function pad2(n) { return String(n).padStart(2, '0'); }
 
@@ -67,7 +62,7 @@ const app = Vue.createApp({
         { k: 'tomorrow', label: '明天' },
         { k: 'after', label: '后天' }
       ],
-      locations: LOCATIONS,
+      locations: [],
 
       // ---- 详情 ----
       tripId: '',
@@ -847,6 +842,11 @@ const app = Vue.createApp({
       el.scrollLeft += (e.deltaY || e.deltaX);
       e.preventDefault();
     }, { passive: false });
+
+    // 地点库（静态明文，与 server/qqbot 同源）：拉取失败则仅剩自定义输入可用
+    fetch('/locations.json').then((r) => r.json()).then((d) => {
+      if (Array.isArray(d.locations)) this.locations = d.locations;
+    }).catch(() => {});
 
     this.form.date = dateStr(0);
     this.form.contact = localStorage.getItem(LS.contact) || '';
