@@ -323,6 +323,7 @@ setInterval(() => {
 // ===== 文案 =====
 const HELP_TEXT = [
   "【百花同行 · 指令】",
+  "私聊我即可直接使用；在群里则在消息前 @我。",
   "发布  一句话说明时间与路线",
   "　　　如：明天下午四点 北化北区到北京南站",
   "查询  查 明天 / 查 明天 北化北区",
@@ -333,7 +334,7 @@ const HELP_TEXT = [
   "取消行程  发起人：取消行程 行程号",
   "车费  成员填写：车费 行程号 金额",
   "通知  提醒同车成员：通知 行程号",
-  "播报  手动播报我的行程，每日 2 次",
+  "播报  我的行程发到机器人所在全部群（每日 2 次）",
   "绑定  私聊发送 绑定+你的学号",
   "解绑  私聊发送：解除绑定",
   "联系  私聊发送 联系方式+你的微信号",
@@ -380,7 +381,7 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
       const r = await internal("bind-check", { qqOpenid: uid, studentId: st.studentId, code: cm[1] });
       bindStates.delete(uid);
       if (r.status !== 200) return reply((r.data && r.data.message) || "验证失败，请重试");
-      return reply(`绑定成功！你的ID：${r.data.displayName}\n现在可以在群里发布行程：明天下午四点 北化北区到北京南站`);
+      return reply(`绑定成功！你的ID：${r.data.displayName}\n直接私聊我发一句话就能发布行程：明天下午四点 北化北区到北京南站\n在群里同样可用：@我 + 同样的话。`);
     }
   }
 
