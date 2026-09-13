@@ -557,7 +557,7 @@ app.post("/api/trips", publishLimiter, verifyToken, requireVerified, async (req,
     // 同路推荐：到达地点相同或相近（组内互为相近）且出发时间相差 1 小时内的其他进行中行程
     let recommendations = [];
     try {
-      const NEARBY = LOC_DATA.nearbyGroups || [];
+      const NEARBY = locData().nearbyGroups || [];
       const near = (a, b) => a === b || NEARBY.some((g) => g.includes(a) && g.includes(b));
       const depMin = (t) => {
         const p = String(t.time).split(":");
@@ -1410,11 +1410,12 @@ app.get("/api/stats/dashboard", async (req, res) => {
 // 设计原则：撮合规则只保留一份实现 —— proxy 按身份签发短期 JWT 并以伪 IP 自调用公开接口，
 // 认证 / 限流 / 防超卖等中间件与业务 handler 全量复用；qqbot 进程不直接读写业务集合。
 
-// 地点库与匹配规则：唯一数据源为 public/locations.json（明文可编辑）。
-// 前端直接 fetch 该静态文件；qqbot 进程启动时读同一文件；本进程负责校验其结构。
-// 修改后：前端刷新即生效，本进程与 qqbot 需 pm2 reload。
-function loadLocData() {
-  const d = JSON.parse(fs.readFileSync(path.join(__dirname, "public", "locations.json"), "utf8"));
+// 地点库与匹配规则：唯一数据源 public/locations.json（明文可编辑）。
+// 前端直接 fetch 该静态文件；qqbot 进程有同样的 mtime 热重载逻辑。
+// 本进程按 mtime 检测变化即自动重载（无需重启）；文件损坏时沿用上一版并记日志。
+const LOC_PATH = path.join(__dirname, "public", "locations.json");
+function parseLocData() {
+  const d = JSON.parse(fs.readFileSync(LOC_PATH, "utf8"));
   if (!Array.isArray(d.locations) || !d.locations.length) throw new Error("locations.json: locations 必须为非空数组");
   if (!d.aliases || typeof d.aliases !== "object") throw new Error("locations.json: aliases 必须为对象");
   for (const a of Object.values(d.aliases)) {
@@ -1422,11 +1423,21 @@ function loadLocData() {
   }
   return d;
 }
-const LOC_DATA = loadLocData();
-const LOCATIONS = LOC_DATA.locations;
-// 别名 → 库内标准名。发布与查询在解析阶段归一，保证库内数据口径统一；
-// 别名之外的自由文本作为「自定义地点」原样存储（与网页版自定义输入一致）。
-const LOCATION_ALIASES = LOC_DATA.aliases;
+let LOC_DATA = parseLocData();
+let LOC_MTIME = fs.statSync(LOC_PATH).mtimeMs;
+function locData() {
+  try {
+    const st = fs.statSync(LOC_PATH);
+    if (st.mtimeMs !== LOC_MTIME) {
+      LOC_DATA = parseLocData();
+      LOC_MTIME = st.mtimeMs;
+      console.log("[locations] 已热重载");
+    }
+  } catch (e) {
+    console.error("[locations] 读取失败，沿用上一版:", e.message);
+  }
+  return LOC_DATA;
+}
 
 // 由身份导出的稳定伪 IP（10.x 段）：使自调用走 express-rate-limit 的独立限流桶，
 // 避免 QQ 侧所有用户共享 127.0.0.1 的 IP 配额
@@ -1789,9 +1800,10 @@ app.post("/api/internal/qq/broadcast-today", internalGuard, async (req, res) => 
   }
 });
 
-// 机器人可用地点库（与前端 LOCATIONS 同源，供解析器匹配）
+// 机器人可用地点库（数据源 public/locations.json，前端直接 fetch 同一文件）
 app.get("/api/internal/qq/locations", internalGuard, (req, res) => {
-  res.json({ locations: LOCATIONS, aliases: LOCATION_ALIASES });
+  const d = locData();
+  res.json({ locations: d.locations, aliases: d.aliases });
 });
 
 // ===== 共建者名录 =====

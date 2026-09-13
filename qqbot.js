@@ -124,17 +124,34 @@ async function whoami(uid) {
 }
 
 // ===== 自然语言解析 =====
-// 地点库与匹配规则：唯一数据源 public/locations.json（server.js 读同一文件）；改后需重启本进程
+// 地点库与匹配规则：唯一数据源 public/locations.json。mtime 热重载（每次解析前静默检查，保存即生效，无需重启）；
+// 文件损坏时沿用上一版。server.js 有同款逻辑，前端直接 fetch 该静态文件。
+const LOC_PATH = require("path").join(__dirname, "public", "locations.json");
 let LOCATIONS = [], LOCATION_ALIASES = {}, KW_GROUPS = {};
+let LOC_MTIME = 0, LOC_ERR_LOGGED = "";
 function loadLocations() {
   try {
-    const d = JSON.parse(require("fs").readFileSync(require("path").join(__dirname, "public", "locations.json"), "utf8"));
-    LOCATIONS = d.locations || [];
-    LOCATION_ALIASES = d.aliases || {};
-    KW_GROUPS = d.kwGroups || {};
-    log(`地点库已加载（${LOCATIONS.length} 个，别名 ${Object.keys(LOCATION_ALIASES).length} 条，关键词组 ${Object.keys(KW_GROUPS).length} 个）`);
+    const fsx = require("fs");
+    const st = fsx.statSync(LOC_PATH);
+    if (st.mtimeMs === LOC_MTIME) return;
+    const d = JSON.parse(fsx.readFileSync(LOC_PATH, "utf8"));
+    if (!Array.isArray(d.locations) || !d.locations.length) throw new Error("locations 必须为非空数组");
+    const aliases = d.aliases && typeof d.aliases === "object" ? d.aliases : {};
+    const kws = d.kwGroups && typeof d.kwGroups === "object" ? d.kwGroups : {};
+    for (const a of Object.values(aliases)) {
+      if (!d.locations.includes(a)) throw new Error(`别名目标 "${a}" 不在 locations 中`);
+    }
+    const first = LOC_MTIME === 0;
+    LOCATIONS = d.locations; LOCATION_ALIASES = aliases; KW_GROUPS = kws; LOC_MTIME = st.mtimeMs;
+    LOC_ERR_LOGGED = "";
+    log(`地点库${first ? "已加载" : "热重载"}（${d.locations.length} 个，别名 ${Object.keys(aliases).length} 条，关键词组 ${Object.keys(kws).length} 个）`);
   } catch (e) {
-    log(`[FATAL] locations.json 加载失败：${e.message}（地点将全部按自定义处理）`);
+    if (LOC_MTIME === 0) {
+      log(`[FATAL] locations.json 加载失败：${e.message}（地点将全部按自定义处理）`);
+    } else if (LOC_ERR_LOGGED !== e.message) {
+      log(`locations.json 热重载失败，沿用上一版：${e.message}`);
+      LOC_ERR_LOGGED = e.message;
+    }
   }
 }
 loadLocations();
@@ -277,6 +294,7 @@ function parseRoute(text) {
 
 // 发布解析：日期 + 时间 + 路线，缺一给明确指引
 function parsePublish(raw) {
+  loadLocations();
   let t = " " + raw.replace(/\s+/g, " ").trim() + " ";
   t = t.replace(/今[晚早]/g, " 今天 ").replace(/明[晚早]/g, " 明天 ");
   t = t.replace(/^\s*(发布|发车|拼车)\s*/, " ");
@@ -299,6 +317,7 @@ function parsePublish(raw) {
 
 // 查询解析：日期与起终点均可选；地点精确匹配优先，未命中时按关键词模糊（机场 → 首都机场+大兴机场 等）
 function parseQuery(raw) {
+  loadLocations();
   let t = " " + raw.replace(/\s+/g, " ").trim() + " ";
   const d = matchDate(t);
   let rest = d.match ? t.replace(d.match, " ") : t;

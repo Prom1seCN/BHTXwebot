@@ -66,5 +66,25 @@ ok("发布疑问词剥离", p && p.from === "回龙观" && p.to === "昌平北�
 const hits = M.scanLocations("北京化工大学昌平校区到乐多港万达");
 ok("最长优先无重复命中", hits.length === 2 && hits[0].loc === "北化北区" && hits[1].loc === "乐多港万达", hits);
 
+// —— mtime 热重载（临时目录隔离，不碰真实文件）——
+const os = require("os");
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "bhtx-loc-"));
+fs.mkdirSync(path.join(tmp, "public"));
+const tmpFile = path.join(tmp, "public", "locations.json");
+const data = { locations: ["北化北区", "昌平西山口"], aliases: { "西山口": "昌平西山口" }, kwGroups: {} };
+fs.writeFileSync(tmpFile, JSON.stringify(data));
+const M2 = factory(null, { base: "", key: "" }, () => {}, require, tmp);
+let r2 = M2.parsePublish("明天下午三点 北化到西山口");
+ok("热重载·首读（北化还不是别名）", r2 && r2.from === "北化" && r2.to === "昌平西山口", r2);
+data.locations.push("乐多港万达");
+data.aliases["北化"] = "乐多港万达";
+fs.writeFileSync(tmpFile, JSON.stringify(data));
+r2 = M2.parsePublish("明天下午三点 北化到西山口");
+ok("热重载·改文件即生效", r2 && r2.from === "乐多港万达" && r2.to === "昌平西山口", r2);
+fs.writeFileSync(tmpFile, "{ broken json");
+r2 = M2.parsePublish("明天下午三点 北化到西山口");
+ok("坏文件沿用上一版", r2 && r2.from === "乐多港万达", r2);
+fs.rmSync(tmp, { recursive: true, force: true });
+
 console.log("\n===== PARSE UNIT " + pass + "/" + (pass + fail) + " =====");
 process.exit(fail ? 1 : 0);
