@@ -70,8 +70,9 @@ async function ensureToken() {
 
 // ===== 发送（被动回复带 msg_id 不占额度；主动消息有每日额度且用户可关闭）=====
 async function replyGroup(groupOpenid, content, msgId) {
+  // 群内被动回复：content 前置换行，与平台附加的 @ 回复对象分隔开
   return qqSend(`${CONFIG.apiBase}/v2/groups/${groupOpenid}/messages`,
-    { content, msg_type: 0, msg_id: msgId, msg_seq: 1 });
+    { content: "\n" + content, msg_type: 0, msg_id: msgId, msg_seq: 1 });
 }
 
 async function replyC2C(userOpenid, content, msgId) {
