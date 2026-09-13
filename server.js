@@ -1770,7 +1770,7 @@ app.post("/api/internal/qq/reminder-due", internalGuard, async (req, res) => {
   try {
     const now = Date.now();
     const trips = await Trip.find({ status: { $in: ["active", "full"] } })
-      .select("from to date time members openid").lean();
+      .select("from to date time members openid tripNo").lean();
     const items = [];
     for (const t of trips) {
       const dep = buildTripDateTime(t);
@@ -1783,7 +1783,7 @@ app.post("/api/internal/qq/reminder-due", internalGuard, async (req, res) => {
       for (const u of users) {
         const dup = await QQReminded.findOne({ tripId: t._id, openid: u.openid }).lean();
         if (dup) continue;
-        items.push({ tripId: String(t._id), openid: u.openid, qqOpenid: u.qqOpenId, tripLabel: `${t.from}→${t.to} ${t.date} ${t.time}` });
+        items.push({ tripId: String(t._id), openid: u.openid, qqOpenid: u.qqOpenId, tripLabel: `${t.tripNo ? "#" + t.tripNo + " " : ""}${t.from}→${t.to} ${t.date} ${t.time}` });
       }
     }
     res.json({ items });
@@ -1827,14 +1827,14 @@ app.post("/api/internal/qq/broadcast-today", internalGuard, async (req, res) => 
     const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10); // UTC+8 自然日
     const groups = await QQGroup.find({ lastBroadcastDate: { $ne: today } }).select("groupOpenid").lean();
     const trips = await Trip.find({ date: today, status: { $in: ["active", "full"] } })
-      .select("from to time capacity headcount").sort({ time: 1 }).lean();
+      .select("from to time capacity headcount tripNo").sort({ time: 1 }).lean();
     let content = null;
     if (trips.length) {
       const lines = trips.map((t, i) => {
         const left = (t.capacity || 4) - 1 - (t.headcount || 0);
-        return `${i + 1}. ${t.time} ${t.from}→${t.to}（余${left}位）`;
+        return `${i + 1}. #${t.tripNo || ""} ${t.time} ${t.from}→${t.to}（余${left}位）`;
       });
-      content = `【百花同行 · 今日出行 ${trips.length} 班】\n${lines.join("\n")}\n上车请@我「加入 序号」；发布行程直接@我说时间和路线。\n网页版：bhtx.prom1se.cn`;
+      content = `【百花同行 · 今日出行 ${trips.length} 班】\n${lines.join("\n")}\n上车请@我「加入 行程号」；发布行程直接@我说时间和路线。\n网页版：bhtx.prom1se.cn`;
     }
     await QQGroup.updateMany({ lastBroadcastDate: { $ne: today } }, { lastBroadcastDate: today });
     res.json({ content, groups: groups.map((g) => g.groupOpenid) });

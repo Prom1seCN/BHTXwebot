@@ -394,7 +394,7 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
     const org = [], joined = [];
     trips.forEach((x) => (x.isOrganizer ? org : joined).push(x));
     s.myJoined = joined;
-    const f = (x) => `${fmtCN(x.date)} ${x.time} ${x.from}→${x.to}（${(x.headcount || 0) + 1}/${(x.capacity || 4) - 1}${x.isFull ? "·已满" : ""}）`;
+    const f = (x) => `${x.tripNo ? "#" + x.tripNo + " " : ""}${fmtCN(x.date)} ${x.time} ${x.from}→${x.to}（${(x.headcount || 0) + 1}/${(x.capacity || 4) - 1}${x.isFull ? "·已满" : ""}）`;
     let out = "";
     if (org.length) out += "我发起的：\n" + org.map((x, i) => `${i + 1}. ${f(x)}`).join("\n") + "\n";
     if (joined.length) out += "我加入的（回复「退出 序号」可退出）：\n" + joined.map((x, i) => `${i + 1}. ${f(x)}`).join("\n");
