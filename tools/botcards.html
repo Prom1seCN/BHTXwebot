@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<!-- QQ 机器人主页功能卡片（2:1，1200x600@2x）。渲染：
+     node tools/shot.js '[{"name":"botcard-a","url":"/botcards.html#quick-start","w":1200,"h":600,"mobile":false,"wait":800},{"name":"botcard-b","url":"/botcards.html#one-sentence","w":1200,"h":600,"mobile":false},{"name":"botcard-c","url":"/botcards.html#commands","w":1200,"h":600,"mobile":false},{"name":"botcard-d","url":"/botcards.html#autopilot","w":1200,"h":600,"mobile":false}]' --base=file:///D:/Projects/BHTXweb/tools
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1200px; height: 600px; overflow: hidden; }
+  body {
+    background: linear-gradient(180deg, #FFFFFF 0%, #F4F7FB 100%);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", sans-serif;
+    color: #1D2939;
+  }
+  .card { width: 1200px; height: 600px; padding: 36px 56px; display: none; flex-direction: column; }
+  .head { display: flex; align-items: center; gap: 14px; margin-bottom: 22px; }
+  .head img { height: 34px; width: auto; }
+  .head .kicker { font-size: 15px; color: #0080FF; font-weight: 600; letter-spacing: 2px; }
+  .head .rule { flex: 1; height: 1px; background: #E3EAF3; }
+  h1 { font-size: 36px; font-weight: 700; letter-spacing: 1px; margin-bottom: 6px; }
+  .sub { font-size: 18px; color: #667085; margin-bottom: 20px; }
+
+  /* A 三步 */
+  .steps { display: flex; gap: 22px; flex: 1; }
+  .step { flex: 1; background: #fff; border: 1px solid #E3EAF3; border-radius: 18px; padding: 26px 24px; }
+  .step .no { width: 40px; height: 40px; border-radius: 50%; background: #0080FF; color: #fff; font-size: 20px; font-weight: 700; display: flex; align-items: center; justify-content: center; margin-bottom: 16px; }
+  .step b { font-size: 22px; display: block; margin-bottom: 10px; }
+  .step p { font-size: 16.5px; color: #667085; line-height: 1.65; }
+  .step code { display: inline-block; margin-top: 10px; background: #EAF3FF; color: #0060CC; border-radius: 8px; padding: 4px 10px; font-size: 15px; }
+
+  /* B 对话 */
+  .chat { display: flex; flex-direction: column; gap: 11px; }
+  .row { display: flex; }
+  .row.me { justify-content: flex-end; }
+  .bub { max-width: 640px; border-radius: 16px; padding: 11px 16px; font-size: 16.5px; line-height: 1.5; }
+  .row.me .bub { background: #0080FF; color: #fff; border-bottom-right-radius: 5px; }
+  .row.bot .bub { background: #fff; border: 1px solid #E3EAF3; color: #1D2939; border-bottom-left-radius: 5px; }
+  .bub em { font-style: normal; font-weight: 700; }
+  .chips { display: flex; gap: 12px; margin-top: 16px; }
+  .chip { font-size: 15px; color: #0060CC; background: #EAF3FF; border-radius: 999px; padding: 6px 15px; }
+
+  /* C 指令表 */
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 10px 14px; font-size: 16.5px; border-bottom: 1px solid #E8EEF6; vertical-align: middle; }
+  td.cmd { color: #0060CC; font-weight: 700; width: 310px; font-variant-numeric: tabular-nums; }
+  td.desc { color: #475467; }
+
+  /* D 自动化 */
+  .flow { display: flex; flex-direction: column; gap: 18px; flex: 1; }
+  .frow { display: flex; align-items: center; background: #fff; border: 1px solid #E3EAF3; border-radius: 16px; padding: 18px 24px; gap: 20px; }
+  .frow .when { font-size: 19px; font-weight: 700; width: 380px; }
+  .frow .arr { color: #0080FF; font-size: 20px; font-weight: 700; }
+  .frow .then { font-size: 18px; color: #667085; }
+  .foot { display: flex; justify-content: space-between; align-items: center; margin-top: 26px; font-size: 15px; color: #98A2B3; }
+  .foot b { color: #0080FF; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div class="card" id="quick-start">
+  <div class="head"><img src="../public/wordmark.png"><div class="rule"></div><div class="kicker">开始使用</div></div>
+  <h1>三步开始拼车</h1>
+  <div class="sub">添加机器人为好友，私聊即可完成一切，不必加入任何群</div>
+  <div class="steps">
+    <div class="step"><div class="no">1</div><b>绑定身份</b><p>发送「绑定 + 你的学号」，验证码发往北化邮箱，仅限在校生</p><code>绑定 2024xxxxxx</code></div>
+    <div class="step"><div class="no">2</div><b>登记联系方式</b><p>仅同车成员互见，学号与联系方式不会进入群聊</p><code>联系方式 wx_xxx</code></div>
+    <div class="step"><div class="no">3</div><b>说句话同行</b><p>说清时间与路线即可，回复「确认」正式发布</p><code>明天下午四点 北化北区到北京南站</code></div>
+  </div>
+  <div class="foot"><span>网页版 <b>bhtx.prom1se.cn</b> 与机器人共用同一套撮合规则</span><span>百花同行 · 不再一个人出发</span></div>
+</div>
+
+<div class="card" id="one-sentence">
+  <div class="head"><img src="../public/wordmark.png"><div class="rule"></div><div class="kicker">发布行程</div></div>
+  <h1>说句话就能发布</h1>
+  <div class="sub">中文时间、星期、口语查询、地点别名都能听懂；解析结果先经你确认再发布</div>
+  <div class="chat">
+    <div class="row me"><div class="bub">明天下午四点 北化北区到北京南站</div></div>
+    <div class="row bot"><div class="bub">待发布：<em>9月14日 16:00 北化北区 → 北京南站</em>，默认再拼 2 人<br>回复「确认」发布，「取消」放弃</div></div>
+    <div class="row me"><div class="bub">确认</div></div>
+    <div class="row bot"><div class="bub">已发布 <em>#260914001</em>　同路推荐：#260914002 16:30 北化东区→北京南站　回复「加入 行程号」可直接加入</div></div>
+  </div>
+  <div class="chips"><div class="chip">查 明天早上去机场的有吗</div><div class="chip">地点库外可自定义</div><div class="chip">规则失效才调用 AI 辅助理解</div></div>
+  <div class="foot"><span>行程号 <b>日期 + 当天第几班</b>，一经分配不变，凭号直达操作</span><span>百花同行 · 不再一个人出发</span></div>
+</div>
+
+<div class="card" id="commands">
+  <div class="head"><img src="../public/wordmark.png"><div class="rule"></div><div class="kicker">指令一览</div></div>
+  <h1>机器人会什么</h1>
+  <div class="sub">群内 @机器人 或私聊直接发送，同一套指令</div>
+  <table>
+    <tr><td class="cmd">明天下午四点 北化北区到北京南站</td><td class="desc">一句话发布，回执附同路推荐</td></tr>
+    <tr><td class="cmd">查 明天 / 去机场的有吗</td><td class="desc">列班次、余位与行程号，游客可用</td></tr>
+    <tr><td class="cmd">加入 行程号 · 退出 行程号</td><td class="desc">上车 / 下车，也支持序号直选</td></tr>
+    <tr><td class="cmd">我的</td><td class="desc">进行中行程，私聊附同行人联系方式</td></tr>
+    <tr><td class="cmd">完成 行程号 · 取消 行程号</td><td class="desc">发起人结束行程，成员收通知</td></tr>
+    <tr><td class="cmd">车费 行程号 金额</td><td class="desc">任意成员填写，完成后人均自动结算</td></tr>
+    <tr><td class="cmd">通知 行程号 · 播报</td><td class="desc">提醒同车成员 / 播报我的行程到全部群</td></tr>
+    <tr><td class="cmd">绑定 · 联系方式 · 解除绑定</td><td class="desc">身份管理仅在私聊，拒绝在群内执行</td></tr>
+  </table>
+  <div class="foot"><span>单聊底部另有<b>快捷按钮与指令面板</b>，点按即填入</span><span>百花同行 · 不再一个人出发</span></div>
+</div>
+
+<div class="card" id="autopilot">
+  <div class="head"><img src="../public/wordmark.png"><div class="rule"></div><div class="kicker">全程自动</div></div>
+  <h1>说句话，剩下的机器人盯着</h1>
+  <div class="flow">
+    <div class="frow"><span class="when">有人加入 / 退出 / 取消</span><span class="arr">→</span><span class="then">私聊通知行程全体其他成员</span></div>
+    <div class="frow"><span class="when">出发前约 1 小时</span><span class="arr">→</span><span class="then">私聊提醒全车成员联系碰头</span></div>
+    <div class="frow"><span class="when">每日 9 / 12 / 15 / 18 点</span><span class="arr">→</span><span class="then">群内播报当日待出行程，无行程不播</span></div>
+    <div class="frow"><span class="when">行程完成且已填车费</span><span class="arr">→</span><span class="then">人均金额自动算好，逐一私聊结算</span></div>
+  </div>
+  <div class="foot"><span>平台只做信息撮合，<b>不经手任何资金</b>，费用线下分摊</span><span>百花同行 · 不再一个人出发</span></div>
+</div>
+
+<script>
+  var show = location.hash.slice(1) || 'quick-start';
+  document.querySelectorAll('.card').forEach(function (el) {
+    if (el.id === show) el.style.display = 'flex';
+  });
+</script>
+</body>
+</html>
