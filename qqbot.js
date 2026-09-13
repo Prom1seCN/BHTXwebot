@@ -574,15 +574,20 @@ function startPollers() {
     polling.remind = false;
   }, 60000);
 
-  // 每日 07:30（UTC+8）群播报，服务端按日去重
+  // 群播报：09:00 / 12:00 / 15:00 / 18:00（UTC+8）各一次，服务端按「日期 时段」去重，无行程不播
+  const BROADCAST_SLOTS = ["09", "12", "15", "18"];
   setInterval(async () => {
     if (polling.broadcast) return;
     polling.broadcast = true;
     try {
       const now = cstNow();
       const hhmm = String(now.getUTCHours()).padStart(2, "0") + String(now.getUTCMinutes()).padStart(2, "0");
-      if (hhmm >= "0730" && hhmm < "0900") {
-        const r = await internal("broadcast-today", {});
+      const slot = BROADCAST_SLOTS.find((s) => {
+        const start = parseInt(s + "00", 10);
+        return hhmm >= start && hhmm < start + 15;
+      });
+      if (slot) {
+        const r = await internal("broadcast-today", { slot });
         if (r.status === 200 && r.data.content) {
           for (const g of (r.data.groups || [])) {
             const resp = await sendGroupProactive(g, r.data.content);

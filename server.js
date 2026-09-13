@@ -367,7 +367,7 @@ const qqGroupSchema = new mongoose.Schema({
   groupOpenid: { type: String, required: true, unique: true },
   addedAt: { type: Date, default: Date.now },
   lastActiveAt: { type: Date, default: Date.now },
-  lastBroadcastDate: { type: String, default: "" }
+  lastBroadcastSlot: { type: String, default: "" }  // 已播报标记：日期-时段（如 2026-09-13-09）
 });
 const QQGroup = mongoose.model("QQGroup", qqGroupSchema);
 
@@ -1859,22 +1859,31 @@ app.post("/api/internal/qq/groups", internalGuard, async (req, res) => {
   }
 });
 
-// 每日播报内容（07:30 由 qqbot 触发）：已标记过的群不再重复拉取
+// 每日四档播报（09/12/15/18 点，UTC+8；qqbot 到点触发）：仅播报当日尚未出发的行程，
+// 按群按时段去重（lastBroadcastSlot = 日期-时段）；无待发行程则不发送
 app.post("/api/internal/qq/broadcast-today", internalGuard, async (req, res) => {
   try {
+    const SLOTS = ["09", "12", "15", "18"];
+    const slot = String((req.body || {}).slot || "");
+    if (!SLOTS.includes(slot)) return res.status(400).json({ message: "无效播报时段" });
     const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10); // UTC+8 自然日
-    const groups = await QQGroup.find({ lastBroadcastDate: { $ne: today } }).select("groupOpenid").lean();
+    const mark = today + "-" + slot;
+    const groups = await QQGroup.find({ lastBroadcastSlot: { $ne: mark } }).select("groupOpenid").lean();
     const trips = await Trip.find({ date: today, status: { $in: ["active", "full"] } })
-      .select("from to time capacity headcount tripNo").sort({ time: 1 }).lean();
+      .select("from to date time capacity headcount tripNo").sort({ time: 1 }).lean();
+    const upcoming = trips.filter((t) => {
+      const dep = buildTripDateTime(t);
+      return dep && dep.getTime() > Date.now();
+    });
     let content = null;
-    if (trips.length) {
-      const lines = trips.map((t, i) => {
+    if (upcoming.length) {
+      const lines = upcoming.map((t, i) => {
         const left = (t.capacity || 4) - 1 - (t.headcount || 0);
         return `${i + 1}. #${t.tripNo || ""} ${t.time} ${t.from} → ${t.to}，余 ${left} 位`;
       });
-      content = `【百花同行 · 今日出行 ${trips.length} 班】\n${lines.join("\n")}\n上车请@我「加入 行程号」；发布行程直接@我说时间和路线。\n网页版：bhtx.prom1se.cn`;
+      content = `【百花同行 · 行程播报】\n${lines.join("\n")}\n上车请@我「加入 行程号」；发布行程直接@我说时间和路线。\n网页版：bhtx.prom1se.cn`;
     }
-    await QQGroup.updateMany({ lastBroadcastDate: { $ne: today } }, { lastBroadcastDate: today });
+    await QQGroup.updateMany({ lastBroadcastSlot: { $ne: mark } }, { lastBroadcastSlot: mark });
     res.json({ content, groups: groups.map((g) => g.groupOpenid) });
   } catch (err) {
     console.error("[qq-internal] broadcast-today 失败:", err.message);
