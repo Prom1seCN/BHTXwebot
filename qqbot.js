@@ -431,6 +431,18 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
     const p = s.pending;
     if (!p) return reply("当前没有待发布的行程");
     if (p.uid !== uid) return reply("该确认仅限发起发布的人操作");
+    // 发布前必须已登记联系方式（未登记时保留待发布状态，设置后重新「确认」即可）
+    const who = await whoami(uid);
+    if (!who || !who.bound) return reply(BIND_HINT);
+    if (!who.contactSet) {
+      return reply(
+        "发布行程前需要先登记联系方式：\n" +
+        "1. 添加我为好友\n" +
+        "2. 私聊我发送：联系方式 你的微信号\n" +
+        "例如发送：联系方式 wx_abc123\n" +
+        "设置后回复「确认」即可发布。"
+      );
+    }
     s.pending = null;
     const r = await proxy(uid, "POST", "/trips", { from: p.from, to: p.to, date: p.date, time: p.time, capacity: 4 });
     if (r.status !== 200) return reply(apiMsg(r));

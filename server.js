@@ -583,8 +583,11 @@ app.post("/api/trips", publishLimiter, verifyToken, requireVerified, async (req,
       return res.status(429).json({ message: "操作过于频繁，1小时内最多5次（加入+发布合计）" });
     }
 
-    if (!from || !to || !date || !time || !contact) {
+    if (!from || !to || !date || !time) {
       return res.status(400).json({ message: "缺少必要字段" });
+    }
+    if (!contact) {
+      return res.status(400).json({ message: "请先设置联系方式后再发布行程" });
     }
 
     const departureDT = buildTripDateTime({ date, time });
