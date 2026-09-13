@@ -161,10 +161,15 @@ async function uploadSponsor(type, input) {
         headers: { 'x-admin-key': getKey(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ type, data: base64 })
       });
-      if (res.status !== 200) { alert((await res.json()).message || '上传失败'); }
+      if (res.status === 413) { alert('图片过大，请压缩到 3MB 内再上传'); }
+      else if (res.status !== 200) {
+        let msg = '上传失败，请稍后再试';
+        try { msg = (await res.json()).message || msg; } catch (e) {}
+        alert(msg);
+      }
       else { alert('已更新'); }
       loadSponsorStatus();
-    } catch (e) { alert('上传失败'); }
+    } catch (e) { alert('上传失败，请稍后再试'); }
     input.value = '';
   };
   reader.readAsDataURL(f);

@@ -47,7 +47,8 @@ if (!APP_SECRET) console.error("[ERROR] 缺少环境变量 WX_APP_SECRET，微�
 if (!JWT_SECRET) console.error("[ERROR] 缺少环境变量 JWT_SECRET，登录鉴权将失效（可用 `openssl rand -hex 32` 生成），请配置 .env 文件");
 
 app.use(cors());
-app.use(express.json());
+// JSON 体积上限放宽到 6MB：赞助收款码截图以 base64 上传（3MB 图片编码后约 4MB）
+app.use(express.json({ limit: "6mb" }));
 
 // 静态文件托管：public/ 目录下的文件可通过 https://bhtx.prom1se.cn/xxx 直接访问（如 funnel.html）
 app.use(express.static("public"));
