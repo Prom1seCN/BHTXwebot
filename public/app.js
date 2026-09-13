@@ -2,10 +2,6 @@
  * 纯前端逻辑，所有业务规则由后端 API 提供（不重复实现）
  */
 
-// 百花同行 QQ 群号（填入后，关于页点「QQ群」即可复制群号）
-const QQ_GROUP = '';
-
-// 地点库（与后端无关，仅用于表单选项）
 // 地点库：唯一数据源 public/locations.json（大厅筛选、发布选项在 mounted 拉取；自定义输入不受限制）
 
 function pad2(n) { return String(n).padStart(2, '0'); }
@@ -76,6 +72,9 @@ const app = Vue.createApp({
 
       // ---- 共建者名录 ----
       showContributors: false,
+      qqOpen: false,
+      qqData: null,
+      qqTs: 0,
       contributorsLoading: false,
       contributors: [],
 
@@ -241,6 +240,15 @@ const app = Vue.createApp({
     // 车费填写权限：任何已加入成员（取消的行程除外）
     canEditCost() {
       return !!(this.trip && this.isMember && this.trip.status !== 'cancelled');
+    },
+
+    // QQ 频道弹层：bot/群任一有号或码才展示条目，全空时给占位文案
+    qqGroupsShown() {
+      const d = this.qqData;
+      if (!d) return false;
+      const botHas = !!(d.bot && (d.bot.number || d.bot.qr));
+      const groupsHas = (d.groups || []).some((g) => g.number || g.qr);
+      return botHas || groupsHas;
     }
   },
 
@@ -576,11 +584,13 @@ const app = Vue.createApp({
       }
     },
 
-    // TODO: 填入百花同行 QQ 群号后，点击「QQ群」即可复制
-    joinQQGroup() {
-      if (!QQ_GROUP) { this.showToast('QQ 群号待补充'); return; }
-      this.copy(QQ_GROUP);
-      this.showToast('群号已复制：' + QQ_GROUP);
+    // QQ 频道（bot + 多群）：/api/qq 为唯一数据源，/manage 维护
+    openQQ() {
+      this.qqOpen = true;
+      fetch('/api/qq').then((r) => r.json()).then((d) => {
+        this.qqData = d || null;
+        this.qqTs = Date.now();
+      }).catch(() => {});
     },
 
     // 大厅日期筛选：快捷标签与手动选日期互斥

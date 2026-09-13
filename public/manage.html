@@ -67,6 +67,20 @@
       </div>
     </section>
 
+    <!-- ===== QQ 频道管理 ===== -->
+    <section class="panel">
+      <h3 class="panel-title">QQ 频道 <span class="panel-sub">关于页「QQ机器人 & QQ群」的二维码与号，PNG/JPG ≤ 3MB</span></h3>
+      <div class="contrib-row">
+        <span class="qq-kind">机器人</span>
+        <input class="dash-input" id="qqBotNumber" maxlength="20" placeholder="机器人QQ号">
+        <input type="file" accept="image/png,image/jpeg" onchange="uploadQQBot(this)">
+        <span class="contrib-count" id="qqBotState"></span>
+        <button class="contrib-btn" onclick="saveQQBot()">保存</button>
+      </div>
+      <div id="qqGroupList"></div>
+      <button class="contrib-btn" style="margin-top:10px" onclick="addQQGroup()">＋ 添加QQ群</button>
+    </section>
+
     <p class="dash-note">管理界面仅含设置类功能；数据统计在 <a href="/dashboard.html">/dashboard</a>。</p>
   </main>
 

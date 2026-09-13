@@ -83,6 +83,7 @@ MongoDB 库 `bhtxweb`，核心集合：
 - `QQGroup`：群注册表 + 四档播报去重（`lastBroadcastSlot`）
 - `QQDailyQuota`：手动播报配额（每用户每日 2 次，2 天 TTL）
 - `Contributor`：共建者名录（含赞助申请审核态 `pending`）
+- `QQChannel`：关于页「QQ机器人 & QQ群」频道配置（bot 一条 + group 多条：备注/号/二维码文件名，图片在 `public/qq-*.png`，gitignore）；公开 `GET /api/qq`，管理走 `/api/internal/qq/channels/*`
 
 ---
 
@@ -148,7 +149,7 @@ qqbot 是薄壳：**不直连数据库、不复制撮合规则**。所有业务�
 - `public/` 单页应用（Vue 3 Options API，零构建）：hash 路由 `#/hall #/publish #/trips #/menu #/about #/guide #/legal`；移动底部 Dock + 桌面侧栏双栏；PWA 可安装
 - 设计系统全 token 化（`style.css` `:root`），品牌蓝 `#0080FF`；行程卡「路线轨道」视觉
 - 数据看板 `dashboard.html/js/css`（复用主站 token，纯手写 SVG 图表零依赖）：漏斗/趋势/健康度/车费，`ADMIN_KEY` 存本机
-- 管理界面 `manage.html/js`：共建者名录、赞助收款码上传、赞助申请审核——**设置类功能与统计分离**，二者互设导航入口，可一键退出（清除本机密钥）
+- 管理界面 `manage.html/js`：共建者名录、赞助收款码上传、赞助申请审核、**QQ 频道**（机器人号+二维码、多个群的备注/群号/二维码）——**设置类功能与统计分离**，二者互设导航入口，可一键退出（清除本机密钥）
 - 赞助：关于页弹层展示微信/支付宝收款码（`<img>` cache-bust 时间戳，换码即时生效），码由管理员在 `/manage` 上传（PNG/JPG ≤3MB，存服务器 `public/`，**不进 git**）
 - 共建者名录：赞助者可自助提交「希望展示的名字 + 一句话介绍 + 转账单号后四位」，管理员核实到账后一键上名录（展示名不要求等于用户 ID，完全自愿）
 

@@ -338,6 +338,17 @@ const contributorSchema = new mongoose.Schema({
 contributorSchema.index({ order: 1 });
 const Contributor = mongoose.model("Contributor", contributorSchema);
 
+// QQ 频道（关于页「QQ机器人 & QQ群」唯一数据源）：bot 全局一条，group 可多条。
+// 二维码图片存 public/（gitignore，同赞助收款码），本集合只记文件名。
+const qqChannelSchema = new mongoose.Schema({
+  kind: { type: String, enum: ["bot", "group"], required: true },
+  label: { type: String, default: "" },     // 群备注名（可选，如「昌平线路1群」）
+  number: { type: String, default: "" },    // 机器人 QQ 号 / 群号
+  qr: { type: String, default: "" },        // public/ 下文件名：qq-bot.png / qq-g-<id>.png
+  updatedAt: { type: Date, default: Date.now }
+});
+const QQChannel = mongoose.model("QQChannel", qqChannelSchema);
+
 async function trackEvent(type, tripId, openid, extra = {}) {
   try {
     // tripId 传空串会因 ObjectId cast 失败丢掉整条事件；非行程事件（发码/登录/改名）统一置 undefined
@@ -1945,6 +1956,17 @@ app.post("/api/internal/contributors/:id/move", internalGuard, async (req, res) 
   }
 });
 
+// ===== 图片上传（赞助收款码与 QQ 频道二维码共用校验）=====
+function decodeImageUpload(data) {
+  const buf = Buffer.from(String(data || ""), "base64");
+  if (!buf.length) return { error: "图片数据为空" };
+  if (buf.length > 3 * 1048576) return { error: "图片请小于 3MB" };
+  const isPng = buf[0] === 0x89 && buf[1] === 0x50;
+  const isJpg = buf[0] === 0xff && buf[1] === 0xd8;
+  if (!isPng && !isJpg) return { error: "仅支持 PNG/JPG 图片" };
+  return { buf };
+}
+
 // ===== 赞助收款码管理（dashboard 上传，关于页展示）=====
 const SPONSOR_TYPES = { wechat: "微信", alipay: "支付宝" };
 
@@ -1961,13 +1983,9 @@ app.post("/api/internal/sponsor", internalGuard, (req, res) => {
   try {
     const { type, data } = req.body || {};
     if (!SPONSOR_TYPES[type]) return res.status(400).json({ message: "无效类型" });
-    const buf = Buffer.from(String(data || ""), "base64");
-    if (!buf.length) return res.status(400).json({ message: "图片数据为空" });
-    if (buf.length > 3 * 1048576) return res.status(400).json({ message: "图片请小于 3MB" });
-    const isPng = buf[0] === 0x89 && buf[1] === 0x50;
-    const isJpg = buf[0] === 0xff && buf[1] === 0xd8;
-    if (!isPng && !isJpg) return res.status(400).json({ message: "仅支持 PNG/JPG 图片" });
-    fs.writeFileSync(path.join("public", `sponsor-${type}.png`), buf);
+    const img = decodeImageUpload(data);
+    if (img.error) return res.status(400).json({ message: img.error });
+    fs.writeFileSync(path.join("public", `sponsor-${type}.png`), img.buf);
     res.json({ message: "已更新", mtime: new Date().toLocaleString("zh-CN") });
   } catch (err) {
     console.error("[sponsor] 上传失败:", err.message);
@@ -1981,6 +1999,117 @@ app.delete("/api/internal/sponsor/:type", internalGuard, (req, res) => {
   const f = path.join("public", `sponsor-${t}.png`);
   if (fs.existsSync(f)) fs.unlinkSync(f);
   res.json({ message: "已删除" });
+});
+
+// ===== QQ 频道：关于页展示 + /manage 管理（bot 一条、群多条）=====
+const QQ_NUM_MAX = 20, QQ_LABEL_MAX = 20;
+
+// 公开：关于页「QQ机器人 & QQ群」
+app.get("/api/qq", async (req, res) => {
+  try {
+    const all = await QQChannel.find({}).sort({ createdAt: 1 }).lean();
+    const bot = all.find((x) => x.kind === "bot") || null;
+    const groups = all.filter((x) => x.kind === "group");
+    res.json({ bot, groups });
+  } catch (err) {
+    console.error("[qq] 读取失败:", err.message);
+    res.status(500).json({ message: "服务器错误" });
+  }
+});
+
+function qqPublic(doc) {
+  return {
+    id: String(doc._id), kind: doc.kind, label: doc.label || "", number: doc.number || "",
+    qr: doc.qr || "", v: new Date(doc.updatedAt).getTime()
+  };
+}
+
+// 管理：bot（存在则更新，不存在则创建）
+app.put("/api/internal/qq/bot", internalGuard, async (req, res) => {
+  try {
+    const { number, data } = req.body || {};
+    let bot = await QQChannel.findOne({ kind: "bot" });
+    if (!bot) bot = new QQChannel({ kind: "bot" });
+    if (typeof number === "string") bot.number = number.trim().slice(0, QQ_NUM_MAX);
+    if (data) {
+      const img = decodeImageUpload(data);
+      if (img.error) return res.status(400).json({ message: img.error });
+      fs.writeFileSync(path.join("public", "qq-bot.png"), img.buf);
+      bot.qr = "qq-bot.png";
+    }
+    bot.updatedAt = new Date();
+    await bot.save();
+    res.json({ message: "已保存", bot: qqPublic(bot) });
+  } catch (err) {
+    console.error("[qq] bot 保存失败:", err.message);
+    res.status(500).json({ message: "服务器错误" });
+  }
+});
+
+// 管理：新增群（label/number/data 均可选，二维码可后补）
+// 注意：/api/internal/qq/groups 的 POST 已被「机器人群注册上报」占用（qqgroups 集合），
+// 本组接口全部走 /channels 命名空间，勿混用。
+app.post("/api/internal/qq/channels/groups", internalGuard, async (req, res) => {
+  try {
+    const { label, number, data } = req.body || {};
+    let img = { buf: null };
+    if (data) {
+      img = decodeImageUpload(data);
+      if (img.error) return res.status(400).json({ message: img.error });
+    }
+    const g = await QQChannel.create({
+      kind: "group",
+      label: String(label || "").trim().slice(0, QQ_LABEL_MAX),
+      number: String(number || "").trim().slice(0, QQ_NUM_MAX)
+    });
+    const fname = `qq-g-${g._id}.png`;
+    if (img.buf) { fs.writeFileSync(path.join("public", fname), img.buf); g.qr = fname; await g.save(); }
+    res.json({ message: "已添加", group: qqPublic(g) });
+  } catch (err) {
+    console.error("[qq] 群添加失败:", err.message);
+    res.status(500).json({ message: "服务器错误" });
+  }
+});
+
+// 管理：修改群（含补传/更换二维码）
+app.put("/api/internal/qq/channels/groups/:id", internalGuard, async (req, res) => {
+  try {
+    const g = await QQChannel.findById(req.params.id);
+    if (!g || g.kind !== "group") return res.status(404).json({ message: "群不存在" });
+    const { label, number, data } = req.body || {};
+    if (typeof label === "string") g.label = label.trim().slice(0, QQ_LABEL_MAX);
+    if (typeof number === "string") g.number = number.trim().slice(0, QQ_NUM_MAX);
+    if (data) {
+      const img = decodeImageUpload(data);
+      if (img.error) return res.status(400).json({ message: img.error });
+      const fname = g.qr || `qq-g-${g._id}.png`;
+      fs.writeFileSync(path.join("public", fname), img.buf);
+      g.qr = fname;
+    }
+    g.updatedAt = new Date();
+    await g.save();
+    res.json({ message: "已保存", group: qqPublic(g) });
+  } catch (err) {
+    console.error("[qq] 群保存失败:", err.message);
+    res.status(500).json({ message: "服务器错误" });
+  }
+});
+
+// 管理：删除群（连带删除二维码文件）
+app.delete("/api/internal/qq/channels/groups/:id", internalGuard, async (req, res) => {
+  try {
+    const g = await QQChannel.findById(req.params.id);
+    if (!g || g.kind !== "group") return res.status(404).json({ message: "群不存在" });
+    if (g.qr) {
+      const f = path.join("public", g.qr);
+      if (fs.existsSync(f)) fs.unlinkSync(f);
+    }
+    await g.deleteOne();
+    res.json({ message: "已删除" });
+  } catch (err) {
+    console.error("[qq] 群删除失败:", err.message);
+    res.status(500).json({ message: "服务器错误" });
+  }
 });
 
 app.listen(PORT, () => {

@@ -65,7 +65,7 @@
 ## 📊 数据看板与管理界面
 
 - **数据看板** [`/dashboard`](https://bhtx.prom1se.cn/dashboard)：转化漏斗、按日趋势、撮合健康度（被加入占比、平均成行时长）、车费统计
-- **管理界面** [`/manage`](https://bhtx.prom1se.cn/manage)：共建者名录管理、赞助收款码上传、赞助申请审核
+- **管理界面** [`/manage`](https://bhtx.prom1se.cn/manage)：共建者名录管理、赞助收款码上传、赞助申请审核、QQ 频道（机器人 & 多个群的号与二维码）
 
 <div align="center"><img src="assets/dashboard.png" alt="数据看板" width="720"></div>
 

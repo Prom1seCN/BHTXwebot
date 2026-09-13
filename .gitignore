@@ -36,5 +36,8 @@ dom.html
 # 赞助收款码（含个人支付信息，绝不入库）
 public/sponsor-*.png
 
+# QQ 频道二维码（机器人生成/管理上传，不入库）
+public/qq-*.png
+
 # 指令面板 ID（机器人启动时向平台注册生成，服务器本地状态，不入库）
 .panel_id

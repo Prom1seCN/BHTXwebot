@@ -423,8 +423,8 @@
       <div class="link-row" @click="openExternal('https://prom1se.cn')">
         <span>开发者博客</span><span class="link-arrow">→</span>
       </div>
-      <div class="link-row" @click="joinQQGroup">
-        <span>QQ群</span><span class="link-arrow">→</span>
+      <div class="link-row" @click="openQQ">
+        <span>QQ机器人 &amp; QQ群</span><span class="link-arrow">→</span>
       </div>
       <div class="link-row" @click="openSponsor">
         <span>赞助开发者</span><span class="link-arrow">→</span>
@@ -433,6 +433,31 @@
         <span>共建者名录</span><span class="link-arrow">{{ showContributors ? "↑" : "→" }}</span>
       </div>
     </section>
+
+    <!-- QQ 频道弹层 -->
+    <div v-if="qqOpen" class="mask" @click.self="qqOpen = false">
+      <div class="sheet qq-sheet">
+        <h3 class="sheet-title">QQ机器人 &amp; QQ群</h3>
+        <p class="sheet-hint">添加机器人后，私聊即可发布、查询、拼车；进群 @机器人 同样可用。</p>
+        <div class="qq-item" v-if="qqData && qqData.bot && (qqData.bot.number || qqData.bot.qr)">
+          <img v-if="qqData.bot.qr" :src="'/' + qqData.bot.qr + '?v=' + qqTs" alt="机器人二维码">
+          <div class="qq-meta">
+            <b>QQ机器人</b>
+            <span class="qq-no">{{ qqData.bot.number || '扫码添加' }}</span>
+            <button v-if="qqData.bot.number" class="btn-text qq-copy" @click="copy(qqData.bot.number)">复制</button>
+          </div>
+        </div>
+        <div class="qq-item" v-for="g in (((qqData && qqData.groups) || []).filter((x) => x.number || x.qr))" :key="g.id">
+          <img v-if="g.qr" :src="'/' + g.qr + '?v=' + qqTs" alt="群二维码">
+          <div class="qq-meta">
+            <b>{{ g.label || '拼车群' }}</b>
+            <span class="qq-no">{{ g.number || '扫码加入' }}</span>
+            <button v-if="g.number" class="btn-text qq-copy" @click="copy(g.number)">复制</button>
+          </div>
+        </div>
+        <p v-if="qqData && !qqGroupsShown" class="qq-empty">频道尚未公布，敬请期待</p>
+      </div>
+    </div>
 
     <!-- 赞助弹层 -->
     <div v-if="sponsorOpen" class="mask" @click.self="sponsorOpen = false">
