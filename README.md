@@ -10,7 +10,7 @@
 [![MongoDB](https://img.shields.io/badge/MongoDB-8-47A248?style=flat-square)](https://www.mongodb.com)
 ![QQ 机器人](https://img.shields.io/badge/QQ%E5%AE%98%E6%96%B9%E6%9C%BA%E5%99%A8%E4%BA%BA-%E5%B7%B2%E6%8E%A5%E5%85%A5-0099FF?style=flat-square)
 
-**面向北京化工大学学生的校园互助拼车信息撮合平台。**
+**北化校友共建的拼车平台。**
 
 [网页版](https://bhtx.prom1se.cn) · [QQ 群机器人](#-qq-群机器人) · [数据看板](https://bhtx.prom1se.cn/dashboard)
 
