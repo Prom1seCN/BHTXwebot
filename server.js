@@ -2211,3 +2211,6 @@ app.listen(PORT, () => {
 
 // 数据看板短链接（静态页在 /dashboard.html）
 app.get("/dashboard", (req, res) => res.redirect("/dashboard.html"));
+
+// 管理界面短链接（静态页在 /manage.html）
+app.get("/manage", (req, res) => res.redirect("/manage.html"));

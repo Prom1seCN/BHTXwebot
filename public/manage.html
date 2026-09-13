@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#0080FF">
+<title>管理 · 百花同行</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png">
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/dashboard.css">
+</head>
+<body>
+
+  <!-- ===== 顶栏（与主站同构）===== -->
+  <header class="topbar">
+    <div class="brand">
+      <img class="brand-mark" src="/logo.png" alt="百花同行">
+      <span class="brand-text">
+        <img class="brand-wordmark" src="/wordmark.png" alt="百花同行">
+        <span class="brand-slogan">不再一个人出发</span>
+      </span>
+    </div>
+    <div class="topbar-right">
+      <a class="dash-link" href="/dashboard.html">数据统计</a>
+      <button class="btn-ghost" onclick="location.reload()">刷新</button>
+    </div>
+  </header>
+
+  <main class="dash-main">
+    <div class="chips chips-track dash-days">
+      <span class="chip on">管理</span>
+      <a class="chip" href="/dashboard.html">数据统计</a>
+    </div>
+
+    <!-- ===== 共建者名录管理 ===== -->
+    <section class="panel">
+      <h3 class="panel-title">共建者名录 <span class="panel-sub">展示于关于页，可排序、隐藏、删除</span></h3>
+
+      <div id="pendingBox">
+        <div class="state-sm">加载中…</div>
+      </div>
+
+      <div class="contrib-add">
+        <input id="cName" class="dash-input" maxlength="20" placeholder="名字">
+        <input id="cRole" class="dash-input" maxlength="30" placeholder="角色 / 贡献说明">
+        <input id="cLink" class="dash-input" maxlength="200" placeholder="主页链接（可空）">
+        <button class="btn-ghost" onclick="addContributor()">添加</button>
+      </div>
+      <div id="contribList" class="contrib-admin"><div class="state-sm">加载中…</div></div>
+    </section>
+
+    <!-- ===== 赞助收款码管理 ===== -->
+    <section class="panel">
+      <h3 class="panel-title">赞助入口 <span class="panel-sub">关于页「赞助开发者」展示的收款码，PNG/JPG ≤ 3MB</span></h3>
+      <div class="sponsor-admin">
+        <div class="sponsor-slot">
+          <div class="sponsor-slot-head"><b>微信收款码</b><span id="sp-state-wechat"></span></div>
+          <input type="file" accept="image/png,image/jpeg" onchange="uploadSponsor('wechat', this)">
+          <button class="contrib-btn del" onclick="deleteSponsor('wechat')">删除</button>
+        </div>
+        <div class="sponsor-slot">
+          <div class="sponsor-slot-head"><b>支付宝收款码</b><span id="sp-state-alipay"></span></div>
+          <input type="file" accept="image/png,image/jpeg" onchange="uploadSponsor('alipay', this)">
+          <button class="contrib-btn del" onclick="deleteSponsor('alipay')">删除</button>
+        </div>
+      </div>
+    </section>
+
+    <p class="dash-note">管理界面仅含设置类功能；数据统计在 <a href="/dashboard.html">/dashboard</a>。</p>
+  </main>
+
+  <footer class="site-foot">
+    <span>© 2026 </span><a href="https://prom1se.cn" target="_blank" rel="noopener">Prom1seCN</a>
+    <span class="dot">·</span>
+    <a href="https://beian.miit.gov.cn/#/Integrated/index" target="_blank" rel="noopener">浙ICP备2026023301号</a>
+  </footer>
+
+  <!-- ===== 密钥（ADMIN_KEY 鉴权，本机保存）===== -->
+  <div class="mask" id="keyMask" style="display:none">
+    <div class="sheet">
+      <h3 class="sheet-title">管理员访问</h3>
+      <p class="sheet-hint">输入管理密钥进入管理界面</p>
+      <div class="field-row">
+        <input class="input-grow" id="keyInput" type="password" placeholder="管理密钥" autocomplete="off">
+      </div>
+      <p class="err" id="keyError" style="display:none"></p>
+      <button class="btn-primary block" onclick="saveKey()">进入</button>
+    </div>
+  </div>
+
+<script src="/manage.js"></script>
+</body>
+</html>

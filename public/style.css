@@ -836,3 +836,7 @@ button, .card, .chip, .link-row, .tab, .uid, .menu-cell { user-select: none; -we
 }
 .sponsor-input:focus { outline: none; border-color: var(--brand); }
 .sponsor-applied { font-size: 13.5px; color: var(--brand-700); background: var(--brand-050); border-radius: var(--r-sm); padding: 10px 12px; }
+
+/* ===== 管理界面入口链接 ===== */
+.dash-link { font-size: 12.5px; color: var(--muted); text-decoration: none; white-space: nowrap; }
+.dash-link:hover { color: var(--brand-700); }

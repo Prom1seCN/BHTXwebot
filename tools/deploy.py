@@ -86,6 +86,8 @@ def main():
             (LOCAL + "/public/app.js", REMOTE + "/public/app.js"),
             (LOCAL + "/public/style.css", REMOTE + "/public/style.css"),
             (LOCAL + "/public/dashboard.html", REMOTE + "/public/dashboard.html"),
+            (LOCAL + "/public/manage.html", REMOTE + "/public/manage.html"),
+            (LOCAL + "/public/manage.js", REMOTE + "/public/manage.js"),
             (LOCAL + "/public/dashboard.css", REMOTE + "/public/dashboard.css"),
             (LOCAL + "/public/dashboard.js", REMOTE + "/public/dashboard.js"),
             (LOCAL + "/public/logo.png", REMOTE + "/public/logo.png"),
