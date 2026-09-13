@@ -97,6 +97,74 @@ async function qqSend(url, body) {
   });
 }
 
+// ===== 私聊快捷入口：全局自定义菜单（C2C 底部按钮）+ 指令面板（C2C 场景）=====
+// 点击后内容自动填入聊天输入框（不自动发送），用户可编辑后发送；均对所有用户生效、全局一份。
+// 实测限制（文档不可信处均已注明）：菜单 ≤10 项、按钮名 ≤5 汉字；面板 ≤10 项、
+// command 与 link 不能混在同一面板（link 放菜单）、desc 不接受全角＋与括号；
+// GET /v2/panels 列不出全局面板 → panel_id 持久化在 .panel_id 文件，remark 兜底。
+const QUICK_MENU = {
+  items: [
+    { type: "send_message", name: "我要拼车", send_message: "明天下午四点 北化北区到北京南站" },
+    { type: "send_message", name: "查行程", send_message: "查 " },
+    { type: "send_message", name: "我的行程", send_message: "我的" },
+    { type: "send_message", name: "退出", send_message: "退出" },
+    { type: "send_message", name: "绑定学号", send_message: "绑定 " },
+    { type: "send_message", name: "帮助", send_message: "帮助" },
+    { type: "link", name: "网页版", link: "https://bhtx.prom1se.cn" }
+  ]
+};
+const QUICK_PANEL_ITEMS = [
+  { type: "command", name: "查 明天", desc: "列出明天班次、余位与行程号" },
+  { type: "command", name: "加入", desc: "加入 行程号 或序号，上车" },
+  { type: "command", name: "我的", desc: "进行中行程、同车联系方式" },
+  { type: "command", name: "完成", desc: "发起人标记：完成 行程号" },
+  { type: "command", name: "取消", desc: "发起人：取消 行程号或序号" },
+  { type: "command", name: "车费", desc: "任意成员：车费 行程号 金额" },
+  { type: "command", name: "通知", desc: "提醒同车成员：通知 行程号" },
+  { type: "command", name: "播报", desc: "我的行程发到机器人所在群" },
+  { type: "command", name: "联系方式", desc: "设置微信号，仅私聊使用" }
+];
+const PANEL_REMARK = "bhtx-commands-v1";
+const PANEL_ID_FILE = require("path").join(__dirname, ".panel_id");
+
+async function qqApi(method, path, body) {
+  const token = await ensureToken();
+  return axios({
+    method,
+    url: CONFIG.apiBase + path,
+    data: body,
+    headers: { Authorization: `QQBot ${token}` },
+    timeout: 10000,
+    validateStatus: () => true
+  });
+}
+
+async function syncQuickEntries() {
+  try {
+    const m = await qqApi("put", "/v2/menu", { menu: QUICK_MENU });
+    if (m.status === 200) log(`自定义菜单已同步（版本 ${m.data && m.data.version}，${QUICK_MENU.items.length} 项）`);
+    else log(`[WARN] 自定义菜单同步失败 ${m.status}: ${JSON.stringify(m.data).slice(0, 200)}`);
+
+    const panel = { items: QUICK_PANEL_ITEMS, remark: PANEL_REMARK };
+    let pid = "";
+    try { pid = (require("fs").readFileSync(PANEL_ID_FILE, "utf8") || "").trim(); } catch (e) {}
+    if (pid) {
+      const u = await qqApi("put", `/v2/panels/${pid}`, { panel });
+      if (u.status === 200) { log(`指令面板已更新（${pid}）`); return; }
+      log(`指令面板更新失败 ${u.status}，尝试重建: ${JSON.stringify(u.data).slice(0, 150)}`);
+    }
+    const p = await qqApi("post", "/v2/panels", { scope: "c2c", target_type: "all", panel });
+    if (p.status === 200 && p.data && p.data.panel_id) {
+      try { require("fs").writeFileSync(PANEL_ID_FILE, p.data.panel_id); } catch (e) {}
+      log(`指令面板已创建（${p.data.panel_id}，${QUICK_PANEL_ITEMS.length} 项）`);
+    } else {
+      log(`[WARN] 指令面板同步失败 ${p.status}: ${JSON.stringify(p.data).slice(0, 200)}`);
+    }
+  } catch (e) {
+    log("[WARN] 快捷入口同步异常: " + e.message);
+  }
+}
+
 function describeApiError(e) {
   return e.response ? `HTTP ${e.response.status} ${JSON.stringify(e.response.data).slice(0, 300)}` : e.message;
 }
@@ -1136,7 +1204,7 @@ function connect(useResume) {
 
 // 进程启动
 refreshAccessToken()
-  .then(() => { connect(false); startPollers(); log("启动完成（指令/通知/提醒/播报 就绪）"); })
+  .then(() => { connect(false); startPollers(); syncQuickEntries(); log("启动完成（指令/通知/提醒/播报 就绪）"); })
   .catch((e) => {
     log(`启动失败: ${describeApiError(e)}`);
     setTimeout(() => {
