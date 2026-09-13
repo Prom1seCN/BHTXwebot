@@ -124,13 +124,21 @@ async function whoami(uid) {
 }
 
 // ===== 自然语言解析 =====
-// 地点库：启动时从 server.js 拉取（权威源），失败时用内置兜底（与前端 LOCATIONS 一致）
+// 地点库 + 别名表：启动时从 server.js 拉取（权威源），失败时用内置兜底（与前端 LOCATIONS 一致）
 let LOCATIONS = [
   "北化北区", "北化东区", "北化西区", "昌平西山口", "乐多港万达",
   "昌平悦荟", "昌平区医院", "昌平北站", "南口镇", "首都机场",
   "大兴机场", "北京南站", "北京西站", "北京站", "北京朝阳站",
   "北京丰台站", "清河站/北京北站"
 ];
+let LOCATION_ALIASES = {
+  "昌平高铁站": "昌平北站", "昌平火车站": "昌平北站", "高铁站": "昌平北站",
+  "西山口站": "昌平西山口", "西山口地铁站": "昌平西山口", "地铁站": "昌平西山口", "西山口": "昌平西山口",
+  "万达": "乐多港万达", "北京乐多港万达": "乐多港万达",
+  "北京化工大学": "北化北区", "北京化工大学昌平校区": "北化北区", "北京化工大学北区": "北化北区",
+  "北化": "北化北区", "学校": "北化北区",
+  "南站": "北京南站", "西站": "北京西站", "朝阳站": "北京朝阳站", "丰台站": "北京丰台站"
+};
 
 async function loadLocations() {
   try {
@@ -139,7 +147,8 @@ async function loadLocations() {
     });
     if (r.status === 200 && Array.isArray(r.data.locations) && r.data.locations.length) {
       LOCATIONS = r.data.locations;
-      log(`地点库已加载（${LOCATIONS.length} 个）`);
+      if (r.data.aliases && typeof r.data.aliases === "object") LOCATION_ALIASES = r.data.aliases;
+      log(`地点库已加载（${LOCATIONS.length} 个，别名 ${Object.keys(LOCATION_ALIASES).length} 条）`);
     }
   } catch (e) { log("locations 拉取失败，使用内置列表"); }
 }
@@ -228,16 +237,56 @@ function matchTime(t) {
   return { time: `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`, match: tm[0] };
 }
 
+// 从左到右、最长优先扫描文本（别名命中归一为标准名），返回 [{loc, idx}]
+function scanLocations(text) {
+  const cands = LOCATIONS.concat(Object.keys(LOCATION_ALIASES)).sort((a, b) => b.length - a.length);
+  const hits = [];
+  const KEEP = /^[一-龥A-Za-z0-9]$/;
+  const PREP = /^[从由去到在至，。、！？,.!？：:；;～~\-—→\s]$/;
+  for (const loc of cands) {
+    let idx = text.indexOf(loc);
+    while (idx !== -1) {
+      const prev = idx > 0 ? text[idx - 1] : " ";
+      // 别名命中若被更长的未知词包住（如「沙河地铁站」），视为自定义地名的一部分，不触发别名
+      const aliasSuspect = LOCATION_ALIASES[loc] && idx > 0 && KEEP.test(prev) && !PREP.test(prev);
+      if (!aliasSuspect && !hits.some((h) => idx < h.idx + h.len && h.idx < idx + loc.length)) {
+        hits.push({ loc, idx, len: loc.length });
+      }
+      idx = text.indexOf(loc, idx + loc.length);
+    }
+  }
+  hits.sort((a, b) => a.idx - b.idx);
+  return hits.map((h) => ({ loc: LOCATION_ALIASES[h.loc] || h.loc, idx: h.idx }));
+}
+
+// 自定义地点兜底：以「到/→」切分，两侧紧贴分隔符的连续词即为起终点，剥离常见疑问词。
+// 任一侧含时间样式词视为误伤（如"3点到5点"），拒绝。
+function parseCustomRoute(text) {
+  const bad = /(点|分钟|上午|下午|中午|晚上|凌晨)/;
+  for (const sep of ["到", "→"]) {
+    let idx = text.indexOf(sep);
+    while (idx !== -1) {
+      let from = (text.slice(0, idx).match(/([一-龥A-Za-z0-9]{2,12})$/) || [])[1] || "";
+      let to = (text.slice(idx + 1).match(/^([一-龥A-Za-z0-9]{2,12})/) || [])[1] || "";
+      from = from.replace(/^(从|在|去)/, "").replace(/(有没有|有吗|能不能|可不可以|可以|想|要|去|有)$/, "");
+      to = to.replace(/(附近|这边|那边|的车|的班|有吗|有没有|的)$/, "");
+      if (from.length >= 2 && to.length >= 2 && !bad.test(from) && !bad.test(to)) {
+        return { from: LOCATION_ALIASES[from] || from, to: LOCATION_ALIASES[to] || to };
+      }
+      idx = text.indexOf(sep, idx + sep.length);
+    }
+  }
+  return null;
+}
+
 function parseRoute(text) {
   const found = [];
-  for (const loc of LOCATIONS) {
-    let idx = text.indexOf(loc);
-    while (idx !== -1) { found.push({ loc, idx }); idx = text.indexOf(loc, idx + loc.length); }
+  for (const f of scanLocations(text)) if (!found.length || found[found.length - 1].loc !== f.loc) found.push(f);
+  if (found.length >= 2) {
+    const from = found[0].loc, to = found[1].loc;
+    return from === to ? null : { from, to };
   }
-  if (found.length < 2) return null;
-  found.sort((a, b) => a.idx - b.idx);
-  const from = found[0].loc, to = found[1].loc;
-  return from === to ? null : { from, to };
+  return parseCustomRoute(text);
 }
 
 // 发布解析：日期 + 时间 + 路线，缺一给明确指引
@@ -256,7 +305,7 @@ function parsePublish(raw) {
   rest = rest.replace(tm.match, " ");
 
   const route = parseRoute(rest);
-  if (!route) return { error: "没找到起终点。出发地与目的地需为常用地点，用「到」连接" };
+  if (!route) return { error: "没找到起终点。用「到」连接出发地与目的地，例如：北化北区到北京南站；常用地点之外也可直接写自定义地点" };
   const dep = new Date(`${d.date}T${tm.time}:00+08:00`);
   if (dep.getTime() <= Date.now()) return { error: "出发时间必须晚于当前时间" };
   return { date: d.date, time: tm.time, from: route.from, to: route.to };
@@ -270,15 +319,9 @@ function parseQuery(raw) {
   const out = { date: d.date, fromList: [], toList: [] };
   const period = matchPeriod(rest);
   if (period && period.range) { out.period = period.range; out.periodWord = period.word; }
-  const found = [];
-  for (const loc of LOCATIONS) {
-    let idx = rest.indexOf(loc);
-    while (idx !== -1) { found.push({ loc, idx }); idx = rest.indexOf(loc, idx + 1); }
-  }
-  if (found.length) {
-    found.sort((a, b) => a.idx - b.idx);
-    const uniq = [];
-    for (const f of found) if (!uniq.includes(f.loc)) uniq.push(f.loc);
+  const uniq = [];
+  for (const f of scanLocations(rest)) if (!uniq.includes(f.loc)) uniq.push(f.loc);
+  if (uniq.length) {
     if (uniq.length >= 2) { out.fromList = [uniq[0]]; out.toList = [uniq[1]]; }
     else { out.anyList = [uniq[0]]; }
     return out;
@@ -299,6 +342,8 @@ function parseQuery(raw) {
     else out.toList = locs;
     return out;
   }
+  const cu = parseCustomRoute(rest);
+  if (cu) { out.fromList = [cu.from]; out.toList = [cu.to]; }
   return out;
 }
 
@@ -714,12 +759,16 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
       if (action === "help") return reply(HELP_TEXT);
       if (action === "publish") {
         const norm = (v) => (v && !/^(none|null|无)$/i.test(String(v).trim()) ? String(v).trim() : "");
-        const from = norm(ip.from), to = norm(ip.to);
+        const canon = (x) => LOCATION_ALIASES[x] || x;
+        const rawFrom = norm(ip.from), rawTo = norm(ip.to);
+        const from = canon(rawFrom), to = canon(rawTo);
+        // 地点可信 = 在库内（含别名归一后），或原样出现在用户消息里（自定义地点）；模型凭空捏造的拒绝
+        const okLoc = (x, raw) => LOCATIONS.includes(x) || (raw.length >= 2 && raw.length <= 16 && t.includes(raw));
         ip.date = resolveWeekdayStr(ip.weekday) || normLlmDate(ip.date);
         if (!from) return reply("请说明出发地，例如：北化北区");
         if (!to) return reply("请说明目的地，例如：北京南站");
-        if (!LOCATIONS.includes(from) || !LOCATIONS.includes(to)) {
-          return reply("出发地与目的地需为常用地点，例如：北化北区、北京南站");
+        if (!okLoc(from, rawFrom) || !okLoc(to, rawTo)) {
+          return reply("没听懂这两个地点。用「到」连接出发地与目的地，例如：北化北区到北京南站；自定义地点也可以");
         }
         if (!ip.date || !/^\d{4}-\d{2}-\d{2}$/.test(ip.date) || !ip.time || !/^\d{2}:\d{2}$/.test(ip.time)) {
           return reply("时间没解析清楚，例如：明天下午四点");

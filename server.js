@@ -1420,6 +1420,18 @@ const LOCATIONS = [
   "北京丰台站", "清河站/北京北站"
 ];
 
+// 地点别名 → 库内标准名。权威源在此处，机器人启动时经 /locations 拉取。
+// 发布与查询在解析阶段都把别名归一为标准名，保证库内数据口径统一；
+// 别名之外的自由文本作为「自定义地点」原样存储（与网页版自定义输入一致）。
+const LOCATION_ALIASES = {
+  "昌平高铁站": "昌平北站", "昌平火车站": "昌平北站", "高铁站": "昌平北站",
+  "西山口站": "昌平西山口", "西山口地铁站": "昌平西山口", "地铁站": "昌平西山口", "西山口": "昌平西山口",
+  "万达": "乐多港万达", "北京乐多港万达": "乐多港万达",
+  "北京化工大学": "北化北区", "北京化工大学昌平校区": "北化北区", "北京化工大学北区": "北化北区",
+  "北化": "北化北区", "学校": "北化北区",
+  "南站": "北京南站", "西站": "北京西站", "朝阳站": "北京朝阳站", "丰台站": "北京丰台站"
+};
+
 // 由身份导出的稳定伪 IP（10.x 段）：使自调用走 express-rate-limit 的独立限流桶，
 // 避免 QQ 侧所有用户共享 127.0.0.1 的 IP 配额
 function pseudoIp(seed) {
@@ -1783,7 +1795,7 @@ app.post("/api/internal/qq/broadcast-today", internalGuard, async (req, res) => 
 
 // 机器人可用地点库（与前端 LOCATIONS 同源，供解析器匹配）
 app.get("/api/internal/qq/locations", internalGuard, (req, res) => {
-  res.json({ locations: LOCATIONS });
+  res.json({ locations: LOCATIONS, aliases: LOCATION_ALIASES });
 });
 
 // ===== 共建者名录 =====
