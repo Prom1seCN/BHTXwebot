@@ -78,6 +78,11 @@ const app = Vue.createApp({
       statusBusy: false,
       costInput: '',
 
+      // ---- 共建者名录 ----
+      showContributors: false,
+      contributorsLoading: false,
+      contributors: [],
+
       // ---- 发布 ----
       form: {
         from: '', fromCustom: '', to: '', toCustom: '',
@@ -767,7 +772,22 @@ const app = Vue.createApp({
       }
     },
 
-    openExternal(url) { window.open(url, '_blank'); }
+    openExternal(url) { window.open(url, '_blank'); },
+
+    async toggleContributors() {
+      this.showContributors = !this.showContributors;
+      if (this.showContributors && !this.contributors.length) {
+        this.contributorsLoading = true;
+        try {
+          const res = await fetch('/api/contributors');
+          const list = await res.json();
+          this.contributors = Array.isArray(list) ? list : [];
+        } catch (e) {
+          this.contributors = [];
+        }
+        this.contributorsLoading = false;
+      }
+    }
   },
 
   mounted() {

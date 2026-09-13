@@ -61,6 +61,18 @@
       </section>
     </div>
 
+    <!-- ===== 共建者名录管理 ===== -->
+    <section class="panel">
+      <h3 class="panel-title">共建者名录 <span class="panel-sub">展示于关于页，可排序、隐藏、删除</span></h3>
+      <div class="contrib-add">
+        <input id="cName" class="dash-input" maxlength="20" placeholder="名字">
+        <input id="cRole" class="dash-input" maxlength="30" placeholder="角色 / 贡献说明">
+        <input id="cLink" class="dash-input" maxlength="200" placeholder="主页链接（可空）">
+        <button class="btn-ghost" onclick="addContributor()">添加</button>
+      </div>
+      <div id="contribList" class="contrib-admin"><div class="state-sm">加载中…</div></div>
+    </section>
+
     <p class="dash-note">数据说明：验证码 / 登录 / 改名事件自 2026-09-13 起记录；行程浏览仅统计登录用户；埋点保留 90 天；健康度中的「被加入」含加入后退出的行程。</p>
   </main>
 

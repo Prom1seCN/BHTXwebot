@@ -84,3 +84,24 @@ body { padding-bottom: 32px; }
   .stat-value { font-size: 28px; }
   .chart-box svg { max-height: 300px; }
 }
+
+/* ===== 共建者名录管理 ===== */
+.contrib-add { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 12px; }
+.dash-input {
+  flex: 1 1 140px; min-width: 0;
+  border: 1px solid var(--line-strong); border-radius: var(--r-sm);
+  padding: 8px 10px; font-size: 13px; color: var(--text); background: var(--surface);
+}
+.dash-input:focus { outline: none; border-color: var(--brand); }
+.contrib-admin { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.contrib-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.contrib-row .dash-input { flex: 1 1 120px; }
+.contrib-row.hidden-row .dash-input { opacity: .45; }
+.contrib-btn {
+  border: none; background: none; cursor: pointer;
+  color: var(--muted); font-size: 13px; padding: 4px 6px;
+  transition: color var(--t-fast);
+}
+.contrib-btn:hover { color: var(--brand-700); }
+.contrib-btn.del:hover { color: var(--danger); }
+.contrib-count { font-size: 11.5px; color: var(--faint); margin-left: auto; font-variant-numeric: tabular-nums; }

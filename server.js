@@ -381,6 +381,17 @@ qqDailyQuotaSchema.index({ openid: 1, date: 1 }, { unique: true });
 qqDailyQuotaSchema.index({ updatedAt: 1 }, { expireAfterSeconds: 2 * 86400 });
 const QQDailyQuota = mongoose.model("QQDailyQuota", qqDailyQuotaSchema);
 
+// ===== 共建者名录 =====
+const contributorSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  role: { type: String, default: "" },
+  link: { type: String, default: "" },
+  hidden: { type: Boolean, default: false },
+  order: { type: Number, default: 0 }
+}, { timestamps: true });
+contributorSchema.index({ order: 1 });
+const Contributor = mongoose.model("Contributor", contributorSchema);
+
 async function trackEvent(type, tripId, openid, extra = {}) {
   try {
     // tripId 传空串会因 ObjectId cast 失败丢掉整条事件；非行程事件（发码/登录/改名）统一置 undefined
@@ -2018,6 +2029,95 @@ app.post("/api/internal/qq/broadcast-today", internalGuard, async (req, res) => 
 // 机器人可用地点库（与前端 LOCATIONS 同源，供解析器匹配）
 app.get("/api/internal/qq/locations", internalGuard, (req, res) => {
   res.json({ locations: LOCATIONS });
+});
+
+// ===== 共建者名录 =====
+// 公开读（关于页展示，仅未隐藏条目）
+app.get("/api/contributors", async (req, res) => {
+  try {
+    const list = await Contributor.find({ hidden: false })
+      .sort({ order: 1, createdAt: 1 }).select("name role link").lean();
+    res.json(list);
+  } catch (err) {
+    console.error("[contributor] 读取失败:", err.message);
+    res.json([]);
+  }
+});
+
+// 管理接口（dashboard，ADMIN_KEY 鉴权；返回全量含隐藏）
+app.get("/api/internal/contributors", internalGuard, async (req, res) => {
+  try {
+    const list = await Contributor.find().sort({ order: 1, createdAt: 1 }).lean();
+    res.json(list);
+  } catch (err) {
+    console.error("[contributor] 管理读取失败:", err.message);
+    res.status(500).json({ message: "服务器错误" });
+  }
+});
+
+app.post("/api/internal/contributors", internalGuard, async (req, res) => {
+  try {
+    const name = String((req.body || {}).name || "").trim().slice(0, 20);
+    if (!name) return res.status(400).json({ message: "请输入名字" });
+    const max = await Contributor.findOne().sort({ order: -1 }).select("order").lean();
+    const doc = await Contributor.create({
+      name,
+      role: String((req.body || {}).role || "").trim().slice(0, 30),
+      link: String((req.body || {}).link || "").trim().slice(0, 200),
+      order: max ? (max.order || 0) + 1 : 1
+    });
+    res.json(doc);
+  } catch (err) {
+    console.error("[contributor] 新增失败:", err.message);
+    res.status(500).json({ message: "服务器错误" });
+  }
+});
+
+app.put("/api/internal/contributors/:id", internalGuard, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const update = {};
+    if (b.name !== undefined) { const v = String(b.name).trim().slice(0, 20); if (!v) return res.status(400).json({ message: "名字不能为空" }); update.name = v; }
+    if (b.role !== undefined) update.role = String(b.role).trim().slice(0, 30);
+    if (b.link !== undefined) update.link = String(b.link).trim().slice(0, 200);
+    if (b.hidden !== undefined) update.hidden = !!b.hidden;
+    const doc = await Contributor.findByIdAndUpdate(req.params.id, update, { new: true }).lean();
+    if (!doc) return res.status(404).json({ message: "条目不存在" });
+    res.json(doc);
+  } catch (err) {
+    console.error("[contributor] 更新失败:", err.message);
+    res.status(500).json({ message: "服务器错误" });
+  }
+});
+
+app.delete("/api/internal/contributors/:id", internalGuard, async (req, res) => {
+  try {
+    const doc = await Contributor.findByIdAndDelete(req.params.id).lean();
+    if (!doc) return res.status(404).json({ message: "条目不存在" });
+    res.json({ message: "已删除" });
+  } catch (err) {
+    console.error("[contributor] 删除失败:", err.message);
+    res.status(500).json({ message: "服务器错误" });
+  }
+});
+
+// 上移 / 下移：与相邻条目交换 order
+app.post("/api/internal/contributors/:id/move", internalGuard, async (req, res) => {
+  try {
+    const dir = (req.body || {}).dir;
+    if (dir !== "up" && dir !== "down") return res.status(400).json({ message: "参数缺失" });
+    const all = await Contributor.find().sort({ order: 1, createdAt: 1 }).lean();
+    const idx = all.findIndex((x) => String(x._id) === req.params.id);
+    if (idx === -1) return res.status(404).json({ message: "条目不存在" });
+    const swapWith = dir === "up" ? all[idx - 1] : all[idx + 1];
+    if (!swapWith) return res.json({ message: "已到边界", moved: false });
+    await Contributor.updateOne({ _id: all[idx]._id }, { order: swapWith.order || 0 });
+    await Contributor.updateOne({ _id: swapWith._id }, { order: all[idx].order || 0 });
+    res.json({ message: "已移动", moved: true });
+  } catch (err) {
+    console.error("[contributor] 移动失败:", err.message);
+    res.status(500).json({ message: "服务器错误" });
+  }
 });
 
 app.listen(PORT, () => {

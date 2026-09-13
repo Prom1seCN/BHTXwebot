@@ -418,9 +418,22 @@
       <div class="link-row" @click="joinQQGroup">
         <span>QQ群</span><span class="link-arrow">→</span>
       </div>
-      <div class="link-row" @click="go('about')">
-        <span>共建者名单</span><span class="link-arrow">→</span>
+      <div class="link-row" @click="toggleContributors">
+        <span>共建者名录</span><span class="link-arrow">{{ showContributors ? "↑" : "→" }}</span>
       </div>
+    </section>
+
+    <section v-if="showContributors" class="panel">
+      <h3 class="panel-title">共建者名录</h3>
+      <div v-if="contributorsLoading" class="state-sm">加载中…</div>
+      <ul v-else-if="contributors.length" class="contrib-list">
+        <li v-for="p in contributors" :key="p._id" class="contrib-item">
+          <span class="contrib-name">{{ p.name }}</span>
+          <span v-if="p.role" class="contrib-role">{{ p.role }}</span>
+          <a v-if="p.link" :href="p.link" target="_blank" rel="noopener" class="contrib-link">主页 →</a>
+        </li>
+      </ul>
+      <div v-else class="state-sm">名录整理中</div>
     </section>
 
     <section class="panel">

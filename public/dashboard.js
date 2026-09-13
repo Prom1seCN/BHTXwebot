@@ -33,6 +33,7 @@ async function load() {
     hideKeyMask();
     current = data;
     renderAll(data);
+    loadContributors();
   } catch (e) {
     document.getElementById('updatedAt').textContent = '加载失败，请重试';
   }
@@ -224,3 +225,100 @@ window.addEventListener('resize', () => {
 });
 
 load();
+
+/* ===== 共建者名录管理 ===== */
+let contributorsCache = [];
+
+async function apiContributors(method, path, body) {
+  const res = await fetch('/api/internal/contributors' + path, {
+    method,
+    headers: { 'x-admin-key': getKey(), 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  if (res.status === 403) { showKeyMask('密钥不正确'); throw new Error('403'); }
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return res.json();
+}
+
+async function loadContributors() {
+  try {
+    contributorsCache = await apiContributors('GET', '');
+    renderContributors();
+  } catch (e) { /* 静默：密钥未输入时不加载 */ }
+}
+
+function renderContributors() {
+  const box = document.getElementById('contribList');
+  if (!contributorsCache.length) {
+    box.innerHTML = '<div class="state-sm">暂无共建者，在上方添加</div>';
+    return;
+  }
+  box.innerHTML = contributorsCache.map((p) =>
+    '<div class="contrib-row' + (p.hidden ? ' hidden-row' : '') + '" data-id="' + p._id + '">' +
+    '<input class="dash-input" value="' + escAttr(p.name) + '" maxlength="20" placeholder="名字">' +
+    '<input class="dash-input" value="' + escAttr(p.role) + '" maxlength="30" placeholder="角色">' +
+    '<input class="dash-input" value="' + escAttr(p.link) + '" maxlength="200" placeholder="链接">' +
+    '<span class="contrib-count">' + (p.hidden ? '已隐藏' : p.order) + '</span>' +
+    '<button class="contrib-btn" title="上移" onclick="moveContributor(\'' + p._id + '\',\'up\')">↑</button>' +
+    '<button class="contrib-btn" title="下移" onclick="moveContributor(\'' + p._id + '\',\'down\')">↓</button>' +
+    '<button class="contrib-btn" onclick="toggleHidden(\'' + p._id + '\',' + (!p.hidden) + ')">' + (p.hidden ? '显示' : '隐藏') + '</button>' +
+    '<button class="contrib-btn" onclick="saveContributor(\'' + p._id + '\')">保存</button>' +
+    '<button class="contrib-btn del" onclick="deleteContributor(\'' + p._id + '\')">删除</button>' +
+    '</div>'
+  ).join('');
+}
+
+function escAttr(s) {
+  return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/'/g, '&#39;');
+}
+
+async function addContributor() {
+  const name = document.getElementById('cName').value.trim();
+  const role = document.getElementById('cRole').value.trim();
+  const link = document.getElementById('cLink').value.trim();
+  if (!name) return alert('请输入名字');
+  try {
+    await apiContributors('POST', '', { name, role, link });
+    document.getElementById('cName').value = '';
+    document.getElementById('cRole').value = '';
+    document.getElementById('cLink').value = '';
+    await loadContributors();
+  } catch (e) { alert('添加失败'); }
+}
+
+function rowInputs(id) {
+  const row = document.querySelector('.contrib-row[data-id="' + id + '"]');
+  const inputs = row.querySelectorAll('input');
+  return { name: inputs[0].value.trim(), role: inputs[1].value.trim(), link: inputs[2].value.trim() };
+}
+
+async function saveContributor(id) {
+  const b = rowInputs(id);
+  if (!b.name) return alert('名字不能为空');
+  try {
+    await apiContributors('PUT', '/' + id, b);
+    await loadContributors();
+  } catch (e) { alert('保存失败'); }
+}
+
+async function toggleHidden(id, hidden) {
+  try {
+    await apiContributors('PUT', '/' + id, { hidden });
+    await loadContributors();
+  } catch (e) { alert('操作失败'); }
+}
+
+async function deleteContributor(id) {
+  if (!confirm('确认删除该共建者？')) return;
+  try {
+    await apiContributors('DELETE', '/' + id);
+    await loadContributors();
+  } catch (e) { alert('删除失败'); }
+}
+
+async function moveContributor(id, dir) {
+  try {
+    await apiContributors('POST', '/' + id + '/move', { dir });
+    await loadContributors();
+  } catch (e) { alert('操作失败'); }
+}
