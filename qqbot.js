@@ -372,7 +372,7 @@ const HELP_TEXT = [
   "查询  查 明天 / 查 明天 北化北区",
   "加入  加入 行程号 或 序号",
   "退出  退出 / 退出 行程号 / 退出 序号",
-  "我的  查看进行中的行程",
+  "我的  进行中的行程；私聊附同行人联系方式",
   "完成  发起人标记完成：完成 行程号",
   "取消行程  发起人：取消行程 行程号",
   "车费  成员填写：车费 行程号 金额",
@@ -551,9 +551,20 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
     trips.forEach((x) => (x.isOrganizer ? org : joined).push(x));
     s.myJoined = joined;
     const f = (x) => `${x.tripNo ? "#" + x.tripNo + " " : ""}${fmtCN(x.date)} ${x.time} ${x.from} → ${x.to}，${(x.headcount || 0) + 1}/${x.capacity || 3} 人${x.isFull ? "，已满" : ""}`;
+    // 私聊附同行人及联系方式（与网页详情页同口径）；群聊一律不显示
+    const withContacts = async (x) => {
+      if (!isDM) return f(x);
+      const mr = await proxy(uid, "GET", `/trips/${x._id || x.id}/members`);
+      if (mr.status !== 200) return f(x);
+      const others = ((mr.data && mr.data.members) || []).filter((m) => !m.isSelf);
+      const lines = others.length
+        ? others.map((m) => `· ${m.isOrganizer ? "发起人 " : ""}${m.displayName}：${m.contact || "未填写"}`).join("\n")
+        : "· 暂无";
+      return `${f(x)}\n  同行人：\n  ${lines.split("\n").join("\n  ")}`;
+    };
     let out = "";
-    if (org.length) out += "我发起的：\n" + org.map((x, i) => `${i + 1}. ${f(x)}`).join("\n") + "\n";
-    if (joined.length) out += "我加入的：\n" + joined.map((x, i) => `${i + 1}. ${f(x)}`).join("\n");
+    if (org.length) out += "我发起的：\n" + (await Promise.all(org.map((x, i) => withContacts(x).then((c) => `${i + 1}. ${c}`)))).join("\n") + "\n";
+    if (joined.length) out += "我加入的：\n" + (await Promise.all(joined.map((x, i) => withContacts(x).then((c) => `${i + 1}. ${c}`)))).join("\n");
     return reply(out.trim());
   }
 
@@ -597,7 +608,7 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
     const x = (r.data && r.data.trip) || trip;
     return reply(
       `已加入 ${x.tripNo ? "#" + x.tripNo + " " : ""}${fmtCN(x.date)} ${x.time} ${x.from} → ${x.to}，当前 ${(x.headcount || 0) + 1}/${x.capacity || 3} 人。\n` +
-      "同车成员联系方式在网页详情页互看，出发前 1 小时我将提醒你。"
+      "回复「我的」可查看同行人及联系方式，出发前 1 小时我将提醒你。"
     );
   }
 

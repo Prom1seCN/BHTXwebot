@@ -641,6 +641,17 @@ app.post("/api/trips/:id/join", verifyToken, requireVerified, async (req, res) =
 
     const openid = req.user.openid;
 
+    // v3.0.0 每日加入上限：一个自然日（UTC+8）最多加入 5 个行程。
+    // 直接扫 Trip（按行程文档去重：重复加入同一行程只计 1；退出不返还），不依赖限流计数集合。
+    const d8 = new Date(Date.now() + 8 * 3600 * 1000);
+    const todayStart = new Date(Date.UTC(d8.getUTCFullYear(), d8.getUTCMonth(), d8.getUTCDate()) - 8 * 3600 * 1000);
+    const joinedToday = await Trip.countDocuments({
+      members: { $elemMatch: { openid, role: "passenger", joinedAt: { $gte: todayStart } } }
+    });
+    if (joinedToday >= 5) {
+      return res.status(429).json({ message: "今天加入的行程已达 5 个，请明天再试" });
+    }
+
     // v2.0.0 加入限流：1小时内最多5次（成功才计数；加入/发布统一计数）
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     const recentJoins = await JoinStat.countDocuments({
@@ -932,6 +943,8 @@ app.get("/api/trips/:id/members", async (req, res) => {
       role: m.role,
       joinedAt: m.joinedAt,
       isOrganizer: m.openid === trip.openid,
+      // 是否本人（服务端计算，供机器人私聊「我的」排除自己；不下发 openid）
+      isSelf: m.openid === currentOpenid,
       // v2.0.0 成员联系方式互看（仅成员/发起人可见；发起人老数据兜底用 trip.contact）
       contact: isMember
         ? ((m.contact && m.contact.trim()) || (m.openid === trip.openid ? trip.contact : "") || "")
