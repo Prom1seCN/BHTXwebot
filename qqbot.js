@@ -315,14 +315,14 @@ const HELP_TEXT = [
   "车费  成员填写：车费 行程号 金额",
   "通知  提醒同车成员：通知 行程号",
   "播报  手动播报我的行程，每日 2 次",
-  "绑定  私聊发送：绑定 学号",
+  "绑定  私聊发送 绑定+你的学号",
   "解绑  私聊发送：解除绑定",
-  "联系  私聊发送：联系方式 微信号",
+  "联系  私聊发送 联系方式+你的微信号",
   "网页  bhtx.prom1se.cn"
 ].join("\n");
 
 const FALLBACK_TEXT = "没看懂这条消息。发送「帮助」查看全部指令";
-const BIND_HINT = "尚未绑定。请先添加我为好友，私聊发送「绑定 学号」完成验证。";
+const BIND_HINT = "尚未绑定。请先添加我为好友，然后私聊我发送：绑定 你的学号。";
 
 function fmtCN(d) {
   const p = String(d || "").split("-");
@@ -374,10 +374,10 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
       s.pendingUnbind = false;
       const r = await internal("unbind", { qqOpenid: uid });
       if (r.status !== 200) return reply((r.data && r.data.message) || "操作失败，请稍后再试");
-      return reply("已解除 QQ 绑定。你的账号与行程不受影响；重新使用机器人时私聊发送「绑定 学号」即可。");
+      return reply("已解除 QQ 绑定。你的账号与行程不受影响；重新使用机器人时私聊发送：绑定 你的学号。");
     }
     s.pendingUnbind = true;
-    return reply("确认解除 QQ 绑定？账号与行程不受影响，解除后需重新绑定。\n回复「确认解绑」执行。");
+    return reply("确认解除 QQ 绑定？账号与行程不受影响，解除后需重新绑定。\n回复「确认解绑」执行，回复「取消」放弃。");
   }
 
   if (isDM && /^确认解绑/.test(t)) {
@@ -386,21 +386,21 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
     s2.pendingUnbind = false;
     const r = await internal("unbind", { qqOpenid: uid });
     if (r.status !== 200) return reply((r.data && r.data.message) || "操作失败，请稍后再试");
-    return reply("已解除 QQ 绑定。你的账号与行程不受影响；重新使用机器人时私聊发送「绑定 学号」即可。");
+    return reply("已解除 QQ 绑定。你的账号与行程不受影响；重新使用时私聊发送：绑定 你的学号。");
   }
 
   if (!isDM && /^解除绑定/.test(t)) {
-    return reply("解除绑定请在私聊完成：添加我为好友，然后私聊发送「解除绑定」");
+    return reply("解除绑定请在私聊完成：添加我为好友，然后私聊发送「解除绑定」四个字。");
   }
 
   if (/^绑定/.test(t)) {
     if (isDM) return handleBindDM(raw, uid, reply);
-    return reply("绑定请在私聊完成，学号不宜留在群聊天记录。\n先添加我为好友，然后私聊发送「绑定 学号」。");
+    return reply("绑定请在私聊完成，学号不宜留在群聊天记录。\n1. 添加我为好友\n2. 私聊我发送：绑定 你的学号\n例如发送：绑定 2024012345");
   }
 
   if (/^联系方式/.test(t)) {
     if (!isDM) {
-      return reply("联系方式涉及隐私，请私聊我发送「联系方式 微信号」。\n提示：该内容已出现在群里，建议尽快更换。");
+      return reply("联系方式涉及隐私，请在私聊完成。\n1. 添加我为好友\n2. 私聊我发送：联系方式 你的微信号\n例如发送：联系方式 wx_abc123\n提示：你刚发送的内容已出现在群里，建议尽快更换。");
     }
     const m = t.match(/^联系方式\s+(.+)$/);
     if (!m) return reply("请发送：联系方式 微信号或手机号");
@@ -499,11 +499,19 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
       trip = Object.assign({}, trip, { id: trip.id || trip._id });
     }
     const who = await whoami(uid);
-    if (!who || !who.bound) return reply(BIND_HINT);
-    if (!who.contactSet) return reply("请先私聊我发送「联系方式 微信号」，设置后再加入行程。");
+    if (!who || !who.bound) return reply("尚未绑定。请先添加我为好友，然后私聊发送「绑定」加你的学号完成验证。");
+    if (!who.contactSet) {
+      return reply(
+        "加入行程前需要先登记联系方式：\n" +
+        "1. 添加我为好友\n" +
+        "2. 私聊我发送：联系方式 你的微信号\n" +
+        "例如发送：联系方式 wx_abc123\n" +
+        "设置完成后重新加入即可。"
+      );
+    }
     const r = await proxy(uid, "POST", `/trips/${trip.id}/join`, {});
     if (r.status === 400 && r.data && r.data.message === "请先设置联系方式后再加入行程") {
-      return reply("请先私聊我发送「联系方式 微信号」，设置后再加入行程。");
+      return reply("请先登记联系方式：私聊我发送：联系方式 你的微信号\n例如发送：联系方式 wx_abc123");
     }
     if (r.status !== 200) return reply(apiMsg(r));
     const x = (r.data && r.data.trip) || trip;
@@ -683,7 +691,7 @@ async function handleBindDM(raw, uid, reply) {
   const who = await whoami(uid);
   if (who && who.bound) return reply(`你已绑定 ${who.emailMasked}，ID：${who.displayName}，无需重复绑定`);
   const m = raw.match(/^绑定\s*(\d{6,15})$/);
-  if (!m) return reply("请发送：绑定 学号\n验证码将发送至你的北化邮箱，请在企业微信-工作台-电子邮件查收。");
+  if (!m) return reply("绑定方法：\n私聊我发送：绑定 你的学号\n例如发送：绑定 2024012345\n验证码将发送至你的北化邮箱，请在企业微信-工作台-电子邮件查收。");
   const r = await internal("bind-start", { qqOpenid: uid, studentId: m[1] });
   if (r.status !== 200) return reply((r.data && r.data.message) || "发送失败，请稍后再试");
   bindStates.set(uid, { studentId: m[1], ts: Date.now() });
