@@ -479,7 +479,10 @@ input, select { font-family: inherit; font-size: inherit; }
 /* ===== 关于页 ===== */
 .about-brand { display: flex; align-items: center; gap: 15px; padding: 8px 2px 22px; }
 .about-logo { width: 68px; height: 68px; flex: 0 0 68px; object-fit: contain; }
+.about-brand .brand-text { flex-direction: column; align-items: flex-start; gap: 7px; }
+.about-brand .brand-line { display: flex; align-items: center; gap: 9px; }
 .about-brand .brand-wordmark { height: 23px; }
+.about-brand .brand-desc { font-size: 12.5px; color: var(--muted); letter-spacing: .3px; }
 
 /* ===== 关于页 · 更新日志 ===== */
 .cl-item + .cl-item { margin-top: 18px; }
