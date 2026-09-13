@@ -120,7 +120,7 @@ MongoDB 库 `bhtxweb`，核心集合：
 
 ### 接入
 - 官方 api-v2：`AccessToken` 换取（提前 60s 刷新）、WebSocket 长连接（`op` 握手/心跳/Resume 断线补发）、`intents = GROUP_AND_C2C_EVENT`
-- **私聊快捷入口**（启动时幂等同步，`syncQuickEntries`）：C2C 底部**自定义菜单** 7 按钮（我要拼车/查行程/我的行程/退出/绑定学号/帮助/网页版链接——点击把指令模板填入输入框，用户可编辑后发送）+ C2C **指令面板** 9 命令（带说明的指令速查表，覆盖菜单放不下的完成/取消/车费/通知/播报等）。实测限制：面板 ≤10 项、command 与 link 不能混一个面板、desc 不接受全角＋和括号；GET panels 列不出全局面板 → panel_id 持久化于 `.panel_id` 文件（服务器本地，gitignore）
+- **私聊快捷入口**（启动时幂等同步，`syncQuickEntries`）：C2C 底部**自定义菜单** 7 按钮（我要拼车=触发词回示例指引，不预填示例句防误发/查行程/我的行程/退出/绑定学号/帮助/网页版链接——点击把内容填入输入框，用户可编辑后发送）+ C2C **指令面板** 9 命令（带说明的指令速查表，覆盖菜单放不下的完成/取消/车费/通知/播报等；裸命令由 BARE_USAGE 用法表兜底）。实测限制：面板 ≤10 项、command 与 link 不能混一个面板、desc 不接受全角＋和括号；GET panels 列不出全局面板 → panel_id 持久化于 `.panel_id` 文件（服务器本地，gitignore）
 - 实测确认：同一用户在私聊 `user_openid` 与群内 `member_openid` **同值**（AppID 级标识），绑定后身份群聊/私聊通用
 - 凭据全在 `.env`（`QQ_BOT_APP_ID/SECRET`、`ADMIN_KEY`、`LLM_API_KEY`），不进代码与 git
 
