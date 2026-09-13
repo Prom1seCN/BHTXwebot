@@ -452,7 +452,7 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
     const recs = r.data.recommendations || [];
     if (recs.length) {
       out += "\n\n同路行程推荐：\n" +
-        recs.map((x, i) => `${i + 1}. #${x.tripNo} ${x.time} ${x.from} → ${x.to}，余 ${x.seatsLeft} 位`).join("\n") +
+        recs.map((x, i) => `${i + 1}. #${x.tripNo} ${x.time} ${x.from} → ${x.to}，${x.cur}/${x.total} 人`).join("\n") +
         "\n回复「加入 行程号」可直接加入";
     }
     return reply(out);
@@ -493,7 +493,7 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
     const route = [].concat(q.fromList || [], q.toList || [], q.anyList || []).filter(Boolean).join("→");
     return reply(
       `【${scope}${route ? " · " + route : ""}】共 ${list.length} 班\n` +
-      list.map((x, i) => `${i + 1}. ${x.tripNo ? "#" + x.tripNo : ""} ${fmtCN(x.date)} ${x.time} ${x.from}→${x.to} 余${(x.capacity || 4) - 1 - (x.headcount || 0)}位`).join("\n") +
+      list.map((x, i) => `${i + 1}. ${x.tripNo ? "#" + x.tripNo : ""} ${fmtCN(x.date)} ${x.time} ${x.from}→${x.to}，${(x.headcount || 0) + 1}/${(x.capacity || 4) - 1} 人`).join("\n") +
       "\n回复「加入 序号」或「加入 行程号」上车"
     );
   }

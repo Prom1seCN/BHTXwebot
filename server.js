@@ -2027,7 +2027,7 @@ app.post("/api/internal/qq/broadcast-today", internalGuard, async (req, res) => 
     if (upcoming.length) {
       const lines = upcoming.map((t, i) => {
         const left = (t.capacity || 4) - 1 - (t.headcount || 0);
-        return `${i + 1}. #${t.tripNo || ""} ${t.time} ${t.from} → ${t.to}，余 ${left} 位`;
+        return `${i + 1}. #${t.tripNo || ""} ${t.time} ${t.from} → ${t.to}，${(t.headcount || 0) + 1}/${(t.capacity || 4) - 1} 人`;
       });
       const head = openid ? `你今日的行程 ${upcoming.length} 班` : `今日出行 ${upcoming.length} 班`;
       content = `【百花同行 · ${head}】\n${lines.join("\n")}\n上车请@我「加入 行程号」；发布行程直接@我说时间和路线。\n网页版：bhtx.prom1se.cn`;
