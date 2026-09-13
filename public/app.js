@@ -50,6 +50,7 @@ const app = Vue.createApp({
       token: localStorage.getItem(LS.token) || '',
       email: localStorage.getItem(LS.email) || '',
       displayName: localStorage.getItem(LS.name) || '',
+      qqBound: false,
 
       // ---- 视图 ----
       view: 'hall',
@@ -657,11 +658,23 @@ const app = Vue.createApp({
       this.displayName = '';
       this.myPublished = [];
       this.myJoined = [];
+      this.qqBound = false;
       localStorage.removeItem(LS.token);
       localStorage.removeItem(LS.email);
       localStorage.removeItem(LS.name);
       if (this.view === 'trips') this.view = 'hall';
       if (!silent) this.showToast('已退出登录');
+    },
+
+    async unbindQQ() {
+      if (!window.confirm('确认解除 QQ 绑定？解除后需重新绑定才能使用机器人。')) return;
+      try {
+        await this.api('/user/qq-unbind', { method: 'POST' });
+        this.qqBound = false;
+        this.showToast('已解除 QQ 绑定');
+      } catch (e) {
+        this.showToast(e.message || '操作失败');
+      }
     },
 
     // ================= 资料 =================
@@ -675,6 +688,7 @@ const app = Vue.createApp({
           localStorage.setItem(LS.name, p.displayName);
         }
         if (p.contact) localStorage.setItem(LS.contact, p.contact);
+        this.qqBound = !!p.qqBound;
       } catch (e) { /* 静默：资料同步失败不阻塞 */ }
     },
 

@@ -499,8 +499,16 @@ input, select { font-family: inherit; font-size: inherit; }
 }
 .site-foot .dot { margin: 0 8px; opacity: .5; }
 
-/* ===== ID 卡片：单字头像 + ID + 修改 ===== */
-.id-card { display: flex; align-items: center; gap: 11px; }
+/* ===== ID 卡片：单字头像 + ID + 修改 + 账号操作 ===== */
+.id-card { display: flex; flex-direction: column; gap: 12px; }
+.id-main { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.id-extra { display: flex; gap: 18px; }
+.id-extra button {
+  border: none; background: none; padding: 0;
+  color: var(--muted); font-size: 12.5px; font-weight: 500;
+  transition: color var(--t-fast);
+}
+.id-extra button:hover, .id-extra button:active { color: var(--danger); }
 .id-avatar {
   width: 38px; height: 38px; flex: 0 0 38px; border-radius: 13px;
   background: linear-gradient(150deg, var(--brand-050), var(--brand-100));

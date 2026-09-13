@@ -1403,6 +1403,20 @@ app.put("/api/user/contact", verifyToken, async (req, res) => {
   }
 });
 
+// 解除 QQ 绑定：仅断开机器人通道（qqOpenId 置空），网页身份、行程与历史不受影响
+app.post("/api/user/qq-unbind", verifyToken, async (req, res) => {
+  try {
+    const user = await User.findOne({ openid: req.user.openid });
+    if (!user || !user.qqOpenId) return res.status(400).json({ message: "未绑定 QQ" });
+    user.qqOpenId = "";
+    await user.save();
+    res.json({ message: "已解除 QQ 绑定" });
+  } catch (err) {
+    console.error("解除 QQ 绑定失败:", err);
+    res.status(500).json({ message: "服务器错误" });
+  }
+});
+
 app.get("/api/user/profile", verifyToken, async (req, res) => {
   try {
     // v2.0.0 兜底：无 User 记录时自动创建（未认证用户也有 ID）
@@ -1413,7 +1427,8 @@ app.get("/api/user/profile", verifyToken, async (req, res) => {
       isVerified: !!user.isVerified,
       displayName: user.displayName || "",
       displayNameUpdatedAt: user.displayNameUpdatedAt || null,
-      contact: user.contact || ""
+      contact: user.contact || "",
+      qqBound: !!user.qqOpenId
     });
   } catch (err) {
     console.error("获取用户信息失败:", err);
@@ -1801,6 +1816,23 @@ app.post("/api/internal/qq/reminder-sent", internalGuard, async (req, res) => {
     res.json({ message: "ok" });
   } catch (err) {
     console.error("[qq-internal] reminder-sent 失败:", err.message);
+    res.status(500).json({ message: "服务器错误" });
+  }
+});
+
+// 解除 QQ 绑定（qqbot 私聊两步确认后调用）
+app.post("/api/internal/qq/unbind", internalGuard, async (req, res) => {
+  try {
+    const { qqOpenid } = req.body || {};
+    if (!qqOpenid) return res.status(400).json({ message: "参数缺失" });
+    const user = await User.findOne({ qqOpenId: qqOpenid });
+    if (!user) return res.status(404).json({ message: "未绑定" });
+    user.qqOpenId = "";
+    await user.save();
+    trackEvent("qq_unbind", undefined, user.openid);
+    res.json({ message: "已解除 QQ 绑定" });
+  } catch (err) {
+    console.error("[qq-internal] unbind 失败:", err.message);
     res.status(500).json({ message: "服务器错误" });
   }
 });

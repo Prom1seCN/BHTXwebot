@@ -261,7 +261,7 @@ const SESSION_TTL = 10 * 60 * 1000;
 
 function session(key) {
   let s = sessions.get(key);
-  if (!s) { s = { results: [], myJoined: [], pending: null, ts: Date.now() }; sessions.set(key, s); }
+  if (!s) { s = { results: [], myJoined: [], pending: null, pendingUnbind: false, ts: Date.now() }; sessions.set(key, s); }
   s.ts = Date.now();
   return s;
 }
@@ -280,7 +280,7 @@ const HELP_TEXT = [
   "加入：加入 序号 或 加入 行程号（如 260913001）",
   "我的行程：我的",
   "退出：退出 序号 或 退出 行程号",
-  "绑定 / 联系方式：私聊发送",
+  "绑定 / 解除绑定 / 联系方式：私聊发送",
   "网页版：bhtx.prom1se.cn"
 ].join("\n");
 
@@ -321,6 +321,32 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
   }
 
   if (/^(帮助|菜单|功能|指令|命令|help)$/i.test(t)) return reply(HELP_TEXT);
+
+  if (isDM && /^解除绑定/.test(t)) {
+    const who = await whoami(uid);
+    if (!who || !who.bound) return reply("你尚未绑定 QQ");
+    if (s.pendingUnbind) {
+      s.pendingUnbind = false;
+      const r = await internal("unbind", { qqOpenid: uid });
+      if (r.status !== 200) return reply((r.data && r.data.message) || "操作失败，请稍后再试");
+      return reply("已解除 QQ 绑定。你的账号与行程不受影响；重新使用机器人时私聊发送「绑定 学号」即可。");
+    }
+    s.pendingUnbind = true;
+    return reply("确认解除 QQ 绑定？解除后需重新绑定才能使用机器人（账号与行程不受影响）。\n回复「确认解绑」执行。");
+  }
+
+  if (isDM && /^确认解绑/.test(t)) {
+    const s2 = session(ctxKey);
+    if (!s2.pendingUnbind) return reply("请先发送「解除绑定」");
+    s2.pendingUnbind = false;
+    const r = await internal("unbind", { qqOpenid: uid });
+    if (r.status !== 200) return reply((r.data && r.data.message) || "操作失败，请稍后再试");
+    return reply("已解除 QQ 绑定。你的账号与行程不受影响；重新使用机器人时私聊发送「绑定 学号」即可。");
+  }
+
+  if (!isDM && /^解除绑定/.test(t)) {
+    return reply("解除绑定请在私聊完成：添加我为好友，然后私聊发送「解除绑定」");
+  }
 
   if (/^绑定/.test(t)) {
     if (isDM) return handleBindDM(raw, uid, reply);

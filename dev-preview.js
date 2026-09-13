@@ -141,7 +141,8 @@ const server = http.createServer((req, res) => {
     if (urlPath.indexOf('/leave') > -1) return json(res, 200, { message: '已退出（预览）' });
     if (urlPath === '/api/trips' && req.method === 'POST') return json(res, 200, { message: '发布成功（预览）', trip: TRIPS[0] });
     if (urlPath === '/api/user/display-name') return json(res, 200, { displayName: body.displayName });
-    if (urlPath === '/api/user/profile') return json(res, 200, { displayName: '北化校友preV', isVerified: true });
+    if (urlPath === '/api/user/profile') return json(res, 200, { displayName: '北化校友preV', isVerified: true, qqBound: true, contact: 'wx_demo_01' });
+    if (urlPath === '/api/user/qq-unbind') return json(res, 200, { message: '已解除 QQ 绑定' });
 
     return json(res, 200, { message: 'ok（预览）' });
   })();
