@@ -183,8 +183,11 @@ qqbot 是薄壳：**不直连数据库、不复制撮合规则**。所有业务�
 - 埋点匿名、90 天 TTL；通知队列、配额、提醒记录均短 TTL 自动回收
 
 **访问控制**
+- 验证码：crypto.randomInt 生成；按邮箱失败计数，错满 5 次作废重发；Auth 带 TTL 索引自动回收过期码
+- 发布/加入字段限长（from/to 30、remark 100、contact 50）；名录 link 仅放行 http(s):// 协议（防 javascript: 注入）
+- 退出登录清空本机缓存的联系方式（共享电脑防串号）
 - 用户态操作靠 JWT（openid）；发布/加入/填车费再叠加 `requireVerified`
-- 统计与管理接口全部 `ADMIN_KEY` 鉴权；`/api/internal/*` 语义为“仅本机 qqbot 调用”
+- 统计接口（/api/stats/*）与浏览器管理接口（/api/manage/*：名录/收款码/QQ 频道）仅 ADMIN_KEY 鉴权（**只认 header，query 兜底已删——防 key 经 URL 泄露进访问日志**）；`/api/internal/*` 在 key 之外还要求来源是本机回环（仅 qqbot 直连可用，公网/浏览器经 nginx 一律 403，伪造 XFF 无效）；node 监听 127.0.0.1:3100，公网唯一入口是 nginx
 - 收款码图片含个人支付信息 → `.gitignore` 排除，绝不入库；上传做大小 + PNG/JPG 魔数校验
 
 **LLM 安全边界**（防提示词注入）

@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # bhtxweb MongoDB 备份：每 12 小时一次（cron 4:30 / 16:30），保留 14 天
 set -euo pipefail
+umask 077   # 备份含全库 PII：产物与目录仅属主可读
 TS=$(date +%F_%H%M)
 DIR=/home/ubuntu/backups/mongo
 mkdir -p "$DIR"
+chmod 700 "$DIR"
 FILE="$DIR/bhtxweb_$TS.gz"
 
 docker exec bhtx-mongo mongodump --quiet --db bhtxweb --archive --gzip > "$FILE"

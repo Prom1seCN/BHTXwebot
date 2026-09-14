@@ -28,7 +28,7 @@ async function load() {
   const key = getKey();
   if (!key) { showKeyMask(''); return; }
   try {
-    const res = await fetch('/api/internal/contributors', { headers: { 'x-admin-key': key } });
+    const res = await fetch('/api/manage/contributors', { headers: { 'x-admin-key': key } });
     if (res.status === 403) { showKeyMask('密钥不正确'); return; }
     if (res.status !== 200) throw new Error('HTTP ' + res.status);
     hideKeyMask();
@@ -42,7 +42,7 @@ async function load() {
 let contributorsCache = [];
 
 async function apiContributors(method, path, body) {
-  const res = await fetch('/api/internal/contributors' + path, {
+  const res = await fetch('/api/manage/contributors' + path, {
     method,
     headers: { 'x-admin-key': getKey(), 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined
@@ -139,7 +139,7 @@ async function moveContributor(id, dir) {
 /* ===== 赞助收款码管理 ===== */
 async function loadSponsorStatus() {
   try {
-    const res = await fetch('/api/internal/sponsor', { headers: { 'x-admin-key': getKey() } });
+    const res = await fetch('/api/manage/sponsor', { headers: { 'x-admin-key': getKey() } });
     if (res.status !== 200) return;
     const st = await res.json();
     for (const t of ["wechat", "alipay"]) {
@@ -157,7 +157,7 @@ async function uploadSponsor(type, input) {
   reader.onload = async () => {
     const base64 = String(reader.result).split(',')[1];
     try {
-      const res = await fetch('/api/internal/sponsor', {
+      const res = await fetch('/api/manage/sponsor', {
         method: 'POST',
         headers: { 'x-admin-key': getKey(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ type, data: base64 })
@@ -179,7 +179,7 @@ async function uploadSponsor(type, input) {
 async function deleteSponsor(type) {
   if (!confirm('确认删除该收款码？关于页将不再显示此入口。')) return;
   try {
-    await fetch('/api/internal/sponsor/' + type, {
+    await fetch('/api/manage/sponsor/' + type, {
       method: 'DELETE', headers: { 'x-admin-key': getKey() }
     });
     loadSponsorStatus();
@@ -228,7 +228,7 @@ let qqCache = { bot: null, groups: [] };
 let qqDraft = 0;
 
 function qqApiReq(method, path, body) {
-  return fetch('/api/internal/qq' + path, {
+  return fetch('/api/manage/qq' + path, {
     method,
     headers: { 'x-admin-key': getKey(), 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined

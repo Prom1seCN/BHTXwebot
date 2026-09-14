@@ -26,7 +26,7 @@ async function load() {
   const key = getKey();
   if (!key) { showKeyMask(''); return; }
   try {
-    const res = await fetch('/api/stats/dashboard?days=' + days + '&key=' + encodeURIComponent(key));
+    const res = await fetch('/api/stats/dashboard?days=' + days, { headers: { 'x-admin-key': key } });
     if (res.status === 403) { showKeyMask('密钥不正确'); return; }
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();

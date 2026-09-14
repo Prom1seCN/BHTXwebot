@@ -680,6 +680,7 @@ const app = Vue.createApp({
       localStorage.removeItem(LS.token);
       localStorage.removeItem(LS.email);
       localStorage.removeItem(LS.name);
+      localStorage.removeItem(LS.contact);   // 共享电脑防外泄：不清的话下一个人的发布表单会预填上一位的联系方式
       if (this.view === 'trips') this.view = 'hall';
       if (!silent) this.showToast('已退出登录');
     },

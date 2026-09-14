@@ -10,6 +10,7 @@ command -v node >/dev/null || { echo "❌ 找不到 node"; exit 1; }
 echo "== 1. 环境自检 =="
 node -v
 test -f .env || { echo "❌ 缺少 .env"; exit 1; }
+grep -Eq "^JWT_SECRET=.+" .env || { echo "❌ .env 缺少 JWT_SECRET（缺失会导致全站静默半瘫）"; exit 1; }
 grep -q "^PORT=" .env || echo "PORT=3100" >> .env
 grep -q "^MONGO_URI=" .env || echo "MONGO_URI=mongodb://localhost:27017/bhtxweb" >> .env
 

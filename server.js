@@ -31,6 +31,7 @@ const axios = require("axios");
 const jwt = require("jsonwebtoken");
 const rateLimit = require("express-rate-limit");
 const fs = require("fs");
+const crypto = require("crypto");
 const path = require("path");
 const app = express();
 app.set('trust proxy', 1);
@@ -38,7 +39,11 @@ app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3000;
 const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017/bhtxweb"; // 新库；小程序时期的 bhtx 库保留为历史存档，不复用
 const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) console.error("[ERROR] 缺少环境变量 JWT_SECRET，登录鉴权将失效（可用 `openssl rand -hex 32` 生成），请配置 .env 文件");
+if (!JWT_SECRET) {
+  // fail-fast：缺密钥时 verifyToken 会对一切请求 401、登录 500——全站"看着活着"实际全瘫，必须拒绝启动（R12）
+  console.error("[FATAL] 缺少环境变量 JWT_SECRET，请配置 .env（可用 `openssl rand -hex 32` 生成）");
+  process.exit(1);
+}
 
 app.use(cors());
 // JSON 体积上限放宽到 6MB：赞助收款码截图以 base64 上传（3MB 图片编码后约 4MB）
@@ -217,10 +222,12 @@ const authSchema = new mongoose.Schema(
     email: { type: String, required: true },
     code: { type: String, required: true },
     expiresAt: { type: Date, required: true },
-    lastSentAt: { type: Date, default: null }   // 上次发送时间（按邮箱 60s 冷却，防验证码轰炸）
+    lastSentAt: { type: Date, default: null },  // 上次发送时间（按邮箱 60s 冷却，防验证码轰炸）
+    failCount: { type: Number, default: 0 }     // 连续错误次数，满 5 作废当前码（防在线爆破）
   },
   { timestamps: true }
 );
+authSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 }); // TTL：过期码由 Mongo 自动回收
 
 const Trip = mongoose.model("Trip", tripSchema);
 const Auth = mongoose.model("Auth", authSchema);
@@ -488,14 +495,18 @@ app.post("/api/analytics/event", verifyToken, async (req, res) => {
 // 1) 发布行程（预约同行，支持自定义地点与备注）
 app.post("/api/trips", publishLimiter, verifyToken, requireVerified, async (req, res) => {
   try {
-    const { from, to, date, time, remark, capacity, organizerRole } = req.body;
+    let { from, to, date, time, remark } = req.body;
+    const { capacity, organizerRole } = req.body || {};
+    from = String(from || "").trim().slice(0, 30);
+    to = String(to || "").trim().slice(0, 30);
+    if (remark != null) remark = String(remark).trim().slice(0, 100);
     const openid = req.user.openid;
     // 发起人（发布与联系方式回退共用）
     const publisher = await User.findOne({ openid });
     // 联系方式：请求未携带时回退用户已存联系方式（QQ 机器人发布场景）
-    const contact = (req.body.contact && String(req.body.contact).trim())
+    const contact = ((req.body.contact && String(req.body.contact).trim())
       ? String(req.body.contact).trim()
-      : (publisher && publisher.contact) || "";
+      : (publisher && publisher.contact) || "").slice(0, 50);
 
     // v2.0.0 发布与加入统一限流：1小时内最多5次（成功发布才计数）
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
@@ -698,9 +709,9 @@ app.post("/api/trips/:id/join", verifyToken, requireVerified, async (req, res) =
     // 座位由成员线下自行协商，系统只限制人数（原子条件更新防超卖）
     const user = await User.findOne({ openid });
     const { contact } = req.body;   // 加入者联系方式（成员间互看）；未填时回退使用已存联系方式
-    const memberContact = (contact && typeof contact === "string" && contact.trim())
+    const memberContact = ((contact && typeof contact === "string" && contact.trim())
       ? contact.trim()
-      : (user && user.contact ? user.contact : "");
+      : (user && user.contact ? user.contact : "")).slice(0, 50);
     // 联系方式是撮合闭环的必要信息：网页与机器人都必须先有联系方式才能加入
     if (!memberContact) {
       return res.status(400).json({ message: "请先设置联系方式后再加入行程" });
@@ -1126,7 +1137,7 @@ app.post("/api/auth/send-code", sendCodeLimiter, async (req, res) => {
     }
 
     const email = `${emailPrefix}@buct.edu.cn`;
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const code = String(crypto.randomInt(100000, 1000000));
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
     // 按邮箱 60s 冷却：即使换 IP 也无法对同一个邮箱连续轰炸验证码
@@ -1137,7 +1148,7 @@ app.post("/api/auth/send-code", sendCodeLimiter, async (req, res) => {
 
     await Auth.findOneAndUpdate(
       { email },
-      { code, expiresAt, lastSentAt: new Date() },
+      { code, expiresAt, lastSentAt: new Date(), failCount: 0 },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
 
@@ -1177,6 +1188,16 @@ app.post("/api/auth/web-login", webLoginLimiter, async (req, res) => {
     const email = `${emailPrefix}@buct.edu.cn`;
     const authRecord = await Auth.findOne({ email, code: String(code), expiresAt: { $gt: new Date() } });
     if (!authRecord) {
+      // 按邮箱累计失败次数：错满 5 次作废当前码（每码最多 5 次机会；配合发码 60s 冷却与 5 分钟时效）
+      const cur = await Auth.findOne({ email });
+      if (cur) {
+        cur.failCount = (cur.failCount || 0) + 1;
+        if (cur.failCount >= 5) {
+          await Auth.deleteMany({ email });
+          return res.status(400).json({ message: "错误次数过多，验证码已作废，请重新获取" });
+        }
+        await cur.save();
+      }
       return res.status(400).json({ message: "验证码错误或已过期" });
     }
 
@@ -1354,7 +1375,7 @@ async function buildFunnel(days) {
 
 // 转化漏斗（V1.3，ADMIN_KEY 鉴权）
 app.get("/api/stats/funnel", async (req, res) => {
-  const adminKey = req.headers["x-admin-key"] || req.query.key;
+  const adminKey = req.headers["x-admin-key"];
   if (!adminKey || adminKey !== process.env.ADMIN_KEY) {
     return res.status(403).json({ message: "无权访问" });
   }
@@ -1373,7 +1394,7 @@ app.get("/api/stats/funnel", async (req, res) => {
 //   daily：关键事件按「天」的次数分布（UTC+8 自然日聚合，与国内日期对齐）
 //   match：窗口内发布的行程中，被加入（曾有乘客）的占比 + 平均「发布→首次加入」时长
 app.get("/api/stats/dashboard", async (req, res) => {
-  const adminKey = req.headers["x-admin-key"] || req.query.key;
+  const adminKey = req.headers["x-admin-key"];
   if (!adminKey || adminKey !== process.env.ADMIN_KEY) {
     return res.status(403).json({ message: "无权访问" });
   }
@@ -1485,9 +1506,18 @@ function cnDate(d) {
   return p.length === 3 ? `${parseInt(p[1], 10)}月${parseInt(p[2], 10)}日` : String(d || "");
 }
 
-const internalGuard = (req, res, next) => {
-  const k = req.headers["x-admin-key"] || req.query.key;
+const manageGuard = (req, res, next) => {
+  const k = req.headers["x-admin-key"];
   if (!k || k !== process.env.ADMIN_KEY) return res.status(403).json({ message: "无权访问" });
+  next();
+};
+
+// /api/internal/* = 仅本机 qqbot 直连（R1 纵深：key 之外还须回环来源；经 nginx 转发时
+// req.ip 取真实客户端地址，公网与浏览器的内部调用一并 403）；key 只认 header，杜绝 URL 泄露进访问日志
+const internalGuard = (req, res, next) => {
+  const k = req.headers["x-admin-key"];
+  if (!k || k !== process.env.ADMIN_KEY) return res.status(403).json({ message: "无权访问" });
+  if (!["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.ip)) return res.status(403).json({ message: "无权访问" });
   next();
 };
 
@@ -1730,10 +1760,12 @@ app.post("/api/internal/qq/trip-lookup", internalGuard, async (req, res) => {
       const actor = await User.findOne({ qqOpenId: actorQQ }).select("openid").lean();
       actorOpenid = actor ? actor.openid : "";
     }
+    // 只回指令消费所需字段；成员名单/联系方式/发起人邮箱留在服务端（纵深防御，qqbot 从不渲染它们）
+    const { members, contact, openid, ...pub } = trip;
     res.json({
-      trip,
-      isOrganizer: trip.openid === actorOpenid,
-      isMember: trip.openid === actorOpenid || (trip.members || []).some((m) => m.openid === actorOpenid && m.status === "joined")
+      trip: pub,
+      isOrganizer: openid === actorOpenid,
+      isMember: openid === actorOpenid || (members || []).some((m) => m.openid === actorOpenid && m.status === "joined")
     });
   } catch (err) {
     console.error("[qq-internal] trip-lookup 失败:", err.message);
@@ -1927,7 +1959,7 @@ app.delete("/api/contributors/apply/:code", async (req, res) => {
 });
 
 // 管理接口（dashboard，ADMIN_KEY 鉴权；返回全量含隐藏）
-app.get("/api/internal/contributors", internalGuard, async (req, res) => {
+app.get("/api/manage/contributors", manageGuard, async (req, res) => {
   try {
     const list = await Contributor.find().sort({ order: 1, createdAt: 1 }).lean();
     res.json(list);
@@ -1937,15 +1969,17 @@ app.get("/api/internal/contributors", internalGuard, async (req, res) => {
   }
 });
 
-app.post("/api/internal/contributors", internalGuard, async (req, res) => {
+app.post("/api/manage/contributors", manageGuard, async (req, res) => {
   try {
     const name = String((req.body || {}).name || "").trim().slice(0, 20);
     if (!name) return res.status(400).json({ message: "请输入名字" });
+    const rawLink = String((req.body || {}).link || "").trim().slice(0, 200);
+    if (rawLink && !/^https?:\/\//i.test(rawLink)) return res.status(400).json({ message: "链接必须以 http(s):// 开头" });
     const max = await Contributor.findOne().sort({ order: -1 }).select("order").lean();
     const doc = await Contributor.create({
       name,
       role: String((req.body || {}).role || "").trim().slice(0, 30),
-      link: String((req.body || {}).link || "").trim().slice(0, 200),
+      link: rawLink,
       order: max ? (max.order || 0) + 1 : 1
     });
     res.json(doc);
@@ -1955,13 +1989,17 @@ app.post("/api/internal/contributors", internalGuard, async (req, res) => {
   }
 });
 
-app.put("/api/internal/contributors/:id", internalGuard, async (req, res) => {
+app.put("/api/manage/contributors/:id", manageGuard, async (req, res) => {
   try {
     const b = req.body || {};
     const update = {};
     if (b.name !== undefined) { const v = String(b.name).trim().slice(0, 20); if (!v) return res.status(400).json({ message: "名字不能为空" }); update.name = v; }
     if (b.role !== undefined) update.role = String(b.role).trim().slice(0, 30);
-    if (b.link !== undefined) update.link = String(b.link).trim().slice(0, 200);
+    if (b.link !== undefined) {
+      const v = String(b.link).trim().slice(0, 200);
+      if (v && !/^https?:\/\//i.test(v)) return res.status(400).json({ message: "链接必须以 http(s):// 开头" });
+      update.link = v;
+    }
     if (b.hidden !== undefined) update.hidden = !!b.hidden;
     if (b.pending !== undefined) update.pending = !!b.pending;
     const doc = await Contributor.findByIdAndUpdate(req.params.id, update, { new: true }).lean();
@@ -1973,7 +2011,7 @@ app.put("/api/internal/contributors/:id", internalGuard, async (req, res) => {
   }
 });
 
-app.delete("/api/internal/contributors/:id", internalGuard, async (req, res) => {
+app.delete("/api/manage/contributors/:id", manageGuard, async (req, res) => {
   try {
     const doc = await Contributor.findByIdAndDelete(req.params.id).lean();
     if (!doc) return res.status(404).json({ message: "条目不存在" });
@@ -1985,7 +2023,7 @@ app.delete("/api/internal/contributors/:id", internalGuard, async (req, res) => 
 });
 
 // 上移 / 下移：与相邻条目交换 order
-app.post("/api/internal/contributors/:id/move", internalGuard, async (req, res) => {
+app.post("/api/manage/contributors/:id/move", manageGuard, async (req, res) => {
   try {
     const dir = (req.body || {}).dir;
     if (dir !== "up" && dir !== "down") return res.status(400).json({ message: "参数缺失" });
@@ -2017,7 +2055,7 @@ function decodeImageUpload(data) {
 // ===== 赞助收款码管理（dashboard 上传，关于页展示）=====
 const SPONSOR_TYPES = { wechat: "微信", alipay: "支付宝" };
 
-app.get("/api/internal/sponsor", internalGuard, (req, res) => {
+app.get("/api/manage/sponsor", manageGuard, (req, res) => {
   const out = {};
   for (const t of Object.keys(SPONSOR_TYPES)) {
     const f = path.join("public", `sponsor-${t}.png`);
@@ -2026,7 +2064,7 @@ app.get("/api/internal/sponsor", internalGuard, (req, res) => {
   res.json(out);
 });
 
-app.post("/api/internal/sponsor", internalGuard, (req, res) => {
+app.post("/api/manage/sponsor", manageGuard, (req, res) => {
   try {
     const { type, data } = req.body || {};
     if (!SPONSOR_TYPES[type]) return res.status(400).json({ message: "无效类型" });
@@ -2040,7 +2078,7 @@ app.post("/api/internal/sponsor", internalGuard, (req, res) => {
   }
 });
 
-app.delete("/api/internal/sponsor/:type", internalGuard, (req, res) => {
+app.delete("/api/manage/sponsor/:type", manageGuard, (req, res) => {
   const t = req.params.type;
   if (!SPONSOR_TYPES[t]) return res.status(400).json({ message: "无效类型" });
   const f = path.join("public", `sponsor-${t}.png`);
@@ -2072,7 +2110,7 @@ function qqPublic(doc) {
 }
 
 // 管理：bot（存在则更新，不存在则创建）
-app.put("/api/internal/qq/bot", internalGuard, async (req, res) => {
+app.put("/api/manage/qq/bot", manageGuard, async (req, res) => {
   try {
     const { number, data } = req.body || {};
     let bot = await QQChannel.findOne({ kind: "bot" });
@@ -2097,7 +2135,7 @@ app.put("/api/internal/qq/bot", internalGuard, async (req, res) => {
 // 注意：/api/internal/qq/groups 的 POST 已被「机器人群注册上报」占用（qqgroups 集合），
 // 本组接口全部走 /channels 命名空间，勿混用。
 // 防连点/重试造成重复：群号非空且已有同群号的条目 → 幂等返回既有条目；号与名全空的拒绝创建。
-app.post("/api/internal/qq/channels/groups", internalGuard, async (req, res) => {
+app.post("/api/manage/qq/channels/groups", manageGuard, async (req, res) => {
   try {
     const { label, number, data } = req.body || {};
     const num = String(number || "").trim().slice(0, QQ_NUM_MAX);
@@ -2134,7 +2172,7 @@ app.post("/api/internal/qq/channels/groups", internalGuard, async (req, res) => 
 });
 
 // 管理：修改群（含补传/更换二维码）
-app.put("/api/internal/qq/channels/groups/:id", internalGuard, async (req, res) => {
+app.put("/api/manage/qq/channels/groups/:id", manageGuard, async (req, res) => {
   try {
     const g = await QQChannel.findById(req.params.id);
     if (!g || g.kind !== "group") return res.status(404).json({ message: "群不存在" });
@@ -2158,7 +2196,7 @@ app.put("/api/internal/qq/channels/groups/:id", internalGuard, async (req, res) 
 });
 
 // 管理：删除群（连带删除二维码文件）
-app.delete("/api/internal/qq/channels/groups/:id", internalGuard, async (req, res) => {
+app.delete("/api/manage/qq/channels/groups/:id", manageGuard, async (req, res) => {
   try {
     const g = await QQChannel.findById(req.params.id);
     if (!g || g.kind !== "group") return res.status(404).json({ message: "群不存在" });
@@ -2174,7 +2212,7 @@ app.delete("/api/internal/qq/channels/groups/:id", internalGuard, async (req, re
   }
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, "127.0.0.1", () => {
   console.log(`Server running at http://localhost:${PORT}`);
 });
 
