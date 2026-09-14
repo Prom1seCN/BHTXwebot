@@ -81,6 +81,7 @@ def main():
             (LOCAL + "/package-lock.json", REMOTE + "/package-lock.json"),
             (LOCAL + "/deploy/ecosystem.config.js", REMOTE + "/ecosystem.config.js"),
             (LOCAL + "/deploy/deploy.sh", REMOTE + "/deploy.sh"),
+            # .env 特殊：见下方循环——远端已存在则绝不覆盖（本地 env.server 只是新机种子，含空 ADMIN_KEY）
             (LOCAL + "/deploy/env.server", REMOTE + "/.env"),
             (LOCAL + "/public/index.html", REMOTE + "/public/index.html"),
             (LOCAL + "/public/app.js", REMOTE + "/public/app.js"),
@@ -101,6 +102,14 @@ def main():
             (LOCAL + "/public/vendor/vue.global.prod.js", REMOTE + "/public/vendor/vue.global.prod.js"),
         ]
         for l, r in files:
+            if r == REMOTE + "/.env":
+                # 远端 .env 一旦存在就是线上真相（含随机 JWT_SECRET/轮换后的 ADMIN_KEY），绝不覆盖；新机手工放一次
+                try:
+                    sftp.stat(r)
+                    print("跳过（已存在）", r)
+                    continue
+                except IOError:
+                    pass
             sftp.put(l, r)
             print("↑", r)
         sftp.chmod(REMOTE + "/deploy.sh", 0o755)
