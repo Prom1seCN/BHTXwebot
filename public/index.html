@@ -450,25 +450,7 @@
           </div>
         </div>
         <p class="sponsor-note">赞助为对开发者的无偿支持，不构成任何服务对价。</p>
-
-        <template v-if="!sponsorApplied">
-          <div class="sponsor-apply-sep">赞助后想加入共建者名录？</div>
-          <template v-if="!sponsorFormOpen">
-            <button class="btn-primary block" @click="sponsorFormOpen = true">我想加入共建者名录</button>
-          </template>
-          <template v-else>
-            <div class="sponsor-apply-hint">名字会展示在关于页的名录里，不要求与你的用户 ID 相同。提交后由开发者核实到账并展示。</div>
-            <input v-model.trim="applyName" class="sponsor-input" maxlength="20" placeholder="希望展示的名字">
-            <input v-model.trim="applyRole" class="sponsor-input" maxlength="30" placeholder="一句话介绍（可选）">
-            <input v-model.trim="applyRef" class="sponsor-input" maxlength="4" inputmode="numeric" placeholder="转账单号后四位（选填）">
-            <p v-if="applyError" class="err">{{ applyError }}</p>
-            <button class="btn-primary block" :disabled="applying" @click="submitSponsorApply">
-              {{ applying ? '提交中…' : '提交申请' }}
-            </button>
-            <button class="btn-text" @click="sponsorFormOpen = false">先不了</button>
-          </template>
-        </template>
-        <p v-else class="sponsor-applied">申请已收到，核实到账后会展示在共建者名录中。</p>
+        <p class="sponsor-note">赞助后想上共建者名录？打开「关于 → 共建者名录」，自主申请即可。</p>
 
         <button class="btn-text" @click="sponsorOpen = false">关闭</button>
       </div>
@@ -485,6 +467,31 @@
         </li>
       </ul>
       <div v-else class="state-sm">名录整理中</div>
+
+      <div class="contrib-apply">
+        <template v-if="applyState && applyState.status === 'pending'">
+          <p class="contrib-apply-note">你的申请 <b>#{{ applyCode }}</b>（{{ applyState.name }}）正在审核中，通过后出现在上方名录。<br>每个设备同时仅一条申请，可撤回后修改重提。</p>
+          <button class="btn-text" @click="withdrawApply">撤回申请</button>
+        </template>
+        <template v-else-if="applyState && applyState.status === 'approved'">
+          <p class="contrib-apply-note">申请 <b>#{{ applyCode }}</b> 已通过，欢迎进入共建者名录。</p>
+        </template>
+        <template v-else-if="!applyFormOpen">
+          <p class="contrib-apply-hint">提意见、找 bug、写代码、做宣传……都算共建。</p>
+          <button class="btn-primary block" @click="applyError = ''; applyFormOpen = true">申请加入名录</button>
+        </template>
+        <template v-else>
+          <p class="contrib-apply-hint">展示 ID 不要求与用户 ID 相同；提交后由开发者核实通过。保留申请编号，可随时撤回。</p>
+          <input v-model.trim="applyName" class="sponsor-input" maxlength="20" placeholder="希望展示的 ID">
+          <input v-model.trim="applyRole" class="sponsor-input" maxlength="30" placeholder="一句话介绍（可选）">
+          <input v-model.trim="applyRef" class="sponsor-input" maxlength="20" placeholder="核实信息（可选，如赞助单号尾数）">
+          <p v-if="applyError" class="err">{{ applyError }}</p>
+          <button class="btn-primary block" :disabled="applying" @click="submitApply">
+            {{ applying ? '提交中…' : '提交申请' }}
+          </button>
+          <button class="btn-text" @click="applyFormOpen = false; applyError = ''">取消</button>
+        </template>
+      </div>
     </section>
 
     <section class="panel">

@@ -31,7 +31,8 @@ const LS = {
   token: 'bhtxweb_token',
   email: 'bhtxweb_email',
   name: 'bhtxweb_name',
-  contact: 'bhtxweb_contact'
+  contact: 'bhtxweb_contact',
+  contribApply: 'bhtxweb_contrib_apply'   // 本机共建者申请编号（一设备同时仅一条）
 };
 
 const app = Vue.createApp({
@@ -70,23 +71,26 @@ const app = Vue.createApp({
       costInput: '',
       isMemberView: false,
 
-      // ---- 共建者名录 ----
-      showContributors: false,
+      // ---- QQ 频道（独立页）----
       qqData: null,
       qqTs: 0,
+
+      // ---- 共建者名录（含自主申请）----
+      showContributors: false,
       contributorsLoading: false,
       contributors: [],
-
-      // ---- 赞助 ----
-      sponsorOpen: false,
-      sponsorTs: 0,
-      sponsorFormOpen: false,
-      sponsorApplied: false,
+      applyCode: localStorage.getItem(LS.contribApply) || '',
+      applyState: null,          // {status,name,role}
+      applyFormOpen: false,
       applyName: '',
       applyRole: '',
       applyRef: '',
       applyError: '',
       applying: false,
+
+      // ---- 赞助 ----
+      sponsorOpen: false,
+      sponsorTs: 0,
 
       // ---- 发布 ----
       form: {
@@ -801,35 +805,70 @@ const app = Vue.createApp({
         }
         this.contributorsLoading = false;
       }
+      if (this.showContributors) this.checkApply();
     },
 
-    hideSponsorItem(e) {
-      if (e.target && e.target.parentNode) e.target.parentNode.style.display = 'none';
+    // 本机申请状态：LS 存编号 → 查服务端；已删除/撤回则清掉本地记录
+    async checkApply() {
+      if (!this.applyCode) { this.applyState = null; return; }
+      try {
+        const res = await fetch('/api/contributors/apply/' + this.applyCode);
+        const d = await res.json();
+        if (!d.found) {
+          this.applyCode = '';
+          localStorage.removeItem(LS.contribApply);
+          this.applyState = null;
+          return;
+        }
+        this.applyState = { status: d.status, name: d.name };
+      } catch (e) { /* 网络异常保持现状 */ }
     },
 
-    async submitSponsorApply() {
+    async submitApply() {
       this.applyError = '';
-      if (!this.applyName) { this.applyError = '请填写希望展示的名字'; return; }
+      if (!this.applyName) { this.applyError = '请填写希望展示的 ID'; return; }
       this.applying = true;
       try {
         const res = await fetch('/api/contributors/apply', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: this.applyName,
-            role: this.applyRole,
-            ref4: this.applyRef,
-            channel: 'web'
-          })
+          body: JSON.stringify({ name: this.applyName, role: this.applyRole, ref4: this.applyRef })
         });
         const data = await res.json().catch(() => ({}));
         if (res.status !== 200) { this.applyError = data.message || '提交失败，请稍后再试'; return; }
-        this.sponsorApplied = true;
+        this.applyCode = String(data.code || '');
+        localStorage.setItem(LS.contribApply, this.applyCode);
+        this.applyFormOpen = false;
+        this.applyName = this.applyRole = this.applyRef = '';
+        await this.checkApply();
       } catch (e) {
         this.applyError = '提交失败，请稍后再试';
       } finally {
         this.applying = false;
       }
+    },
+
+    async withdrawApply() {
+      if (!this.applyCode) return;
+      try {
+        const res = await fetch('/api/contributors/apply/' + this.applyCode, { method: 'DELETE' });
+        if (res.status !== 200) {
+          const d = await res.json().catch(() => ({}));
+          this.applyError = d.message || '撤回失败，请稍后再试';
+          return;
+        }
+      } catch (e) {
+        this.applyError = '撤回失败，请稍后再试';
+        return;
+      }
+      this.applyCode = '';
+      this.applyState = null;
+      this.applyFormOpen = true;
+      localStorage.removeItem(LS.contribApply);
+    },
+
+    hideSponsorItem(e) {
+      if (e.target && e.target.parentNode) e.target.parentNode.style.display = 'none';
     }
   },
 

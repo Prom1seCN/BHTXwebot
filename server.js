@@ -333,7 +333,8 @@ const contributorSchema = new mongoose.Schema({
   hidden: { type: Boolean, default: false },
   pending: { type: Boolean, default: false },
   channel: { type: String, default: "" },
-  ref4: { type: String, default: "" },
+  ref4: { type: String, default: "" },      // 核实信息（如赞助单号尾数等），仅管理员可见
+  code: { type: String, default: "" },      // 申请编号（6 位数字），申请人凭它查询/撤回
   order: { type: Number, default: 0 }
 }, { timestamps: true });
 contributorSchema.index({ order: 1 });
@@ -1844,38 +1845,83 @@ app.get("/api/contributors", async (req, res) => {
   }
 });
 
-// 赞助申请上名录（公开，限流防灌水：同 IP 每日 5 条）
+// 共建者名录自主申请（公开，无需登录）：同 IP 每日 5 条防灌水。
+// 每次申请生成 6 位数字编号 code，申请人凭它查询状态与撤回（一设备同一时间至多一条由前端持有 code 保证）。
 const applyLimiterMap = new Map();
+function applyLimit(ip, bucket, max) {
+  const today = new Date().toISOString().slice(0, 10);
+  let rec = applyLimiterMap.get(ip);
+  if (!rec || rec.date !== today) { rec = { date: today, apply: 0, withdraw: 0 }; applyLimiterMap.set(ip, rec); }
+  if (applyLimiterMap.size > 500) {
+    for (const [k, v] of applyLimiterMap) if (v.date !== today) applyLimiterMap.delete(k);
+  }
+  if (rec[bucket] >= max) return false;
+  rec[bucket]++;
+  return true;
+}
+const newApplyCode = async () => {
+  for (let i = 0; i < 5; i++) {
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    if (!(await Contributor.findOne({ code }))) return code;
+  }
+  return null;
+};
+
 app.post("/api/contributors/apply", async (req, res) => {
   try {
-    const ip = req.ip;
-    const today = new Date().toISOString().slice(0, 10);
-    const rec = applyLimiterMap.get(ip);
-    if (!rec || rec.date !== today) applyLimiterMap.set(ip, { date: today, count: 0 });
-    if (applyLimiterMap.size > 500) {
-      for (const [k, v] of applyLimiterMap) if (v.date !== today) applyLimiterMap.delete(k);
+    if (!applyLimit(req.ip, "apply", 5)) {
+      return res.status(429).json({ message: "提交过于频繁，请明天再试" });
     }
-    const entry = applyLimiterMap.get(ip);
-    if (entry.count >= 5) return res.status(429).json({ message: "提交过于频繁，请明天再试" });
-    entry.count++;
-
     const b = req.body || {};
     const name = String(b.name || "").trim().slice(0, 20);
-    if (!name) return res.status(400).json({ message: "请填写希望展示的名字" });
+    if (!name) return res.status(400).json({ message: "请填写希望展示的 ID" });
     if (await Contributor.findOne({ name, pending: true })) {
-      return res.status(400).json({ message: "该名字已在审核队列中，请稍候" });
+      return res.status(400).json({ message: "该 ID 已有待审核申请，请明天再试或换一个" });
     }
+    const code = await newApplyCode();
+    if (!code) return res.status(500).json({ message: "服务繁忙，请稍后再试" });
     await Contributor.create({
       name,
       role: String(b.role || "").trim().slice(0, 30),
-      channel: b.channel === "alipay" ? "alipay" : b.channel === "wechat" ? "wechat" : "",
-      ref4: /^\d{1,4}$/.test(String(b.ref4 || "")) ? String(b.ref4) : "",
+      ref4: String(b.ref4 || "").trim().slice(0, 20),
       pending: true,
-      hidden: true
+      hidden: true,
+      code
     });
-    res.json({ message: "申请已收到，核实到账后会展示在共建者名录中" });
+    res.json({ message: "申请已提交，等待开发者核实", code });
   } catch (err) {
     console.error("[contributor] 申请失败:", err.message);
+    res.status(500).json({ message: "服务器错误" });
+  }
+});
+
+// 凭编号查询自己的申请状态（pending / approved / 不存在）
+app.get("/api/contributors/apply/:code", async (req, res) => {
+  try {
+    const code = String(req.params.code || "");
+    if (!/^\d{6}$/.test(code)) return res.json({ found: false });
+    const doc = await Contributor.findOne({ code }).select("name role pending hidden").lean();
+    if (!doc) return res.json({ found: false });
+    res.json({ found: true, status: doc.pending ? "pending" : "approved", name: doc.name, role: doc.role });
+  } catch (err) {
+    console.error("[contributor] 查询申请失败:", err.message);
+    res.status(500).json({ message: "服务器错误" });
+  }
+});
+
+// 凭编号撤回待审核申请（每 IP 每日 20 次，防爆破枚举）
+app.delete("/api/contributors/apply/:code", async (req, res) => {
+  try {
+    if (!applyLimit(req.ip, "withdraw", 20)) {
+      return res.status(429).json({ message: "操作过于频繁，请明天再试" });
+    }
+    const code = String(req.params.code || "");
+    if (!/^\d{6}$/.test(code)) return res.status(400).json({ message: "编号无效" });
+    const doc = await Contributor.findOneAndDelete({ code, pending: true });
+    if (!doc) return res.status(404).json({ message: "申请不存在或已处理" });
+    res.json({ message: "已撤回，可重新申请" });
+  } catch (err) {
+    console.error("[contributor] 撤回失败:", err.message);
     res.status(500).json({ message: "服务器错误" });
   }
 });

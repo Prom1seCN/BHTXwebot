@@ -836,13 +836,7 @@ button, .card, .chip, .link-row, .tab, .uid, .menu-cell { user-select: none; -we
 .qq-card-copy { padding: 7px 16px; font-size: 13px; }
 .qq-empty { text-align: center; color: var(--faint); font-size: 13px; padding: 26px 0 10px; }
 
-/* ===== 赞助 · 名录申请 ===== */
-.sponsor-sheet { max-width: 460px; }
-.sponsor-apply-sep {
-  margin: 14px 0 10px; padding-top: 12px; border-top: 1px solid var(--line);
-  font-size: 13px; font-weight: 600; color: var(--text); text-align: left;
-}
-.sponsor-apply-hint { font-size: 11.5px; color: var(--faint); text-align: left; margin-bottom: 8px; line-height: 1.6; }
+/* ===== 赞助弹层输入（名录申请复用）===== */
 .sponsor-input {
   width: 100%; box-sizing: border-box;
   border: 1px solid var(--line-strong); border-radius: var(--r-sm);
@@ -850,7 +844,12 @@ button, .card, .chip, .link-row, .tab, .uid, .menu-cell { user-select: none; -we
   margin-bottom: 8px;
 }
 .sponsor-input:focus { outline: none; border-color: var(--brand); }
-.sponsor-applied { font-size: 13.5px; color: var(--brand-700); background: var(--brand-050); border-radius: var(--r-sm); padding: 10px 12px; }
+
+/* ===== 共建者名录 · 自主申请 ===== */
+.contrib-apply { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+.contrib-apply-hint { font-size: 12px; color: var(--faint); line-height: 1.6; margin-bottom: 10px; }
+.contrib-apply-note { font-size: 13px; color: var(--muted); line-height: 1.7; margin-bottom: 8px; }
+.contrib-apply-note b { color: var(--brand-700); font-variant-numeric: tabular-nums; }
 
 /* ===== 管理界面入口链接 ===== */
 .dash-link { font-size: 12.5px; color: var(--muted); text-decoration: none; white-space: nowrap; }
