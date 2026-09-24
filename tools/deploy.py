@@ -9,6 +9,14 @@ import os
 import time
 import paramiko
 
+# Windows 控制台默认 GBK：脚本里的 ✅/❌ 与中文输出会抛 UnicodeEncodeError
+# （upload 阶段 24 个文件已传完，最后那句 ✅ 打印反而让整条命令看起来像失败）
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 HOST, USER = "49.232.135.134", "ubuntu"
 STAGES = {"recon", "upload", "start", "nginx-check", "nginx-cut", "verify", "stop-old"}
 _args = sys.argv[1:]
