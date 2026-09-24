@@ -83,9 +83,12 @@ app.use(express.json({ limit: "6mb" }));
 // no-cache：每次都向服务器协商（内容未变返回 304），杜绝发版后浏览器启发式缓存继续喂旧 JS/CSS
 app.use(express.static("public", { cacheControl: true, maxAge: 0 }));
 
+// IP 维度只作兜底（防脚本失控/爬虫）：验证码的真实防护已经挂在邮箱上
+// （单邮箱 5 次/小时、10 次/24 小时、错满锁定、全局发信熔断，见 AuthGuard 处的 GUARD）。
+// 阈值放宽到 20：校园网与 CGNAT 下一栋楼共用一个出口 IP，按 IP 卡太紧会误伤整栋楼的同学。
 const sendCodeLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 5,
+  max: 20,
   standardHeaders: true,
   legacyHeaders: false,
   message: { message: "发送过于频繁，请 15 分钟后再试" }
@@ -418,7 +421,8 @@ const qqChannelSchema = new mongoose.Schema({
   kind: { type: String, enum: ["bot", "group"], required: true },
   label: { type: String, default: "" },     // 群备注名（可选，如「昌平线路1群」）
   number: { type: String, default: "" },    // 机器人 QQ 号 / 群号
-  qr: { type: String, default: "" },        // public/ 下文件名：qq-bot.png / qq-g-<id>.png
+  qr: { type: String, default: "" },        // public/ 下文件名：qq-bot.png / qq-g-<id>.png（无 link 时回退用）
+  link: { type: String, default: "" },      // 加群/机器人主页链接：有则由前端 qrcode 现场绘制，优先于 qr
   updatedAt: { type: Date, default: Date.now }
 });
 const QQChannel = mongoose.model("QQChannel", qqChannelSchema);
@@ -602,6 +606,17 @@ app.post("/api/trips", publishLimiter, verifyToken, requireVerified, async (req,
     });
     if (activeTripCount >= 2) {
       return res.status(400).json({ message: "你同时最多只能有2个进行中的行程，请先退出其他行程" });
+    }
+
+    // v3.0.0 每日发布上限：一个自然日（UTC+8）最多发布 5 个行程。
+    // 与「加入侧每日 5 个」对称——之前发布只有「每小时 5 次 + 同时 2 个进行中」，
+    // 发一个、取消一个、再发一个，可以一天刷出上百条记录（取消的不占并发名额）。
+    // 这里刻意按 createdAt 计入已取消的行程：否则取消就返还额度，上限形同虚设。
+    const d8 = new Date(Date.now() + 8 * 3600 * 1000);
+    const todayStart = new Date(Date.UTC(d8.getUTCFullYear(), d8.getUTCMonth(), d8.getUTCDate()) - 8 * 3600 * 1000);
+    const publishedToday = await Trip.countDocuments({ openid, createdAt: { $gte: todayStart } });
+    if (publishedToday >= 5) {
+      return res.status(429).json({ message: "今天已发布 5 个行程，请明天再试" });
     }
 
     const finalCapacity = Math.min(Math.max(parseInt(capacity, 10) || 3, 2), 4); // 乘客数：2(再拼1) / 3(再拼2,默认) / 4(再拼3)
@@ -2308,7 +2323,16 @@ app.delete("/api/manage/sponsor/:type", manageGuard, (req, res) => {
 });
 
 // ===== QQ 频道：关于页展示 + /manage 管理（bot 一条、群多条）=====
-const QQ_NUM_MAX = 20, QQ_LABEL_MAX = 20;
+const QQ_NUM_MAX = 20, QQ_LABEL_MAX = 20, QQ_LINK_MAX = 300;
+
+// 加群/机器人主页链接：前端用它现场绘制二维码，省掉几百 KB 的截图。
+// 与名录 link 同一套口径：必须 http(s):// 开头（挡掉 javascript: 之类），空串表示改回图片模式。
+function cleanQqLink(v) {
+  const s = String(v == null ? "" : v).trim();
+  if (!s) return "";
+  if (s.length > QQ_LINK_MAX || !/^https?:\/\//i.test(s)) return null;
+  return s;
+}
 
 // 公开：关于页「QQ机器人 & QQ群」
 app.get("/api/qq", async (req, res) => {
@@ -2326,17 +2350,22 @@ app.get("/api/qq", async (req, res) => {
 function qqPublic(doc) {
   return {
     id: String(doc._id), kind: doc.kind, label: doc.label || "", number: doc.number || "",
-    qr: doc.qr || "", v: new Date(doc.updatedAt).getTime()
+    qr: doc.qr || "", link: doc.link || "", v: new Date(doc.updatedAt).getTime()
   };
 }
 
 // 管理：bot（存在则更新，不存在则创建）
 app.put("/api/manage/qq/bot", manageGuard, async (req, res) => {
   try {
-    const { number, data } = req.body || {};
+    const { number, link, data } = req.body || {};
     let bot = await QQChannel.findOne({ kind: "bot" });
     if (!bot) bot = new QQChannel({ kind: "bot" });
     if (typeof number === "string") bot.number = number.trim().slice(0, QQ_NUM_MAX);
+    if (typeof link === "string") {
+      const v = cleanQqLink(link);
+      if (v === null) return res.status(400).json({ message: "链接必须以 http(s):// 开头且不超过 300 字" });
+      bot.link = v;
+    }
     if (data) {
       const img = decodeImageUpload(data);
       if (img.error) return res.status(400).json({ message: img.error });
@@ -2358,22 +2387,27 @@ app.put("/api/manage/qq/bot", manageGuard, async (req, res) => {
 // 防连点/重试造成重复：群号非空且已有同群号的条目 → 幂等返回既有条目；号与名全空的拒绝创建。
 app.post("/api/manage/qq/channels/groups", manageGuard, async (req, res) => {
   try {
-    const { label, number, data } = req.body || {};
+    const { label, number, link, data } = req.body || {};
     const num = String(number || "").trim().slice(0, QQ_NUM_MAX);
     const lab = String(label || "").trim().slice(0, QQ_LABEL_MAX);
-    if (!num && !lab) return res.status(400).json({ message: "请至少填写群名或群号" });
+    const lnk = cleanQqLink(link);
+    if (lnk === null) return res.status(400).json({ message: "链接必须以 http(s):// 开头且不超过 300 字" });
+    if (!num && !lab && !lnk) return res.status(400).json({ message: "请至少填写群名、群号或加群链接" });
     if (num) {
       const exist = await QQChannel.findOne({ kind: "group", number: num });
       if (exist) {
+        let changed = false;
+        if (lnk && lnk !== exist.link) { exist.link = lnk; changed = true; }
         if (data) {
           const img = decodeImageUpload(data);
           if (img.error) return res.status(400).json({ message: img.error });
           const fname = exist.qr || `qq-g-${exist._id}.png`;
           fs.writeFileSync(path.join("public", fname), img.buf);
-          exist.qr = fname; exist.updatedAt = new Date();
+          exist.qr = fname;
           if (lab && !exist.label) exist.label = lab;
-          await exist.save();
+          changed = true;
         }
+        if (changed) { exist.updatedAt = new Date(); await exist.save(); }
         return res.json({ message: "该群号已存在，已合并到现有条目", group: qqPublic(exist) });
       }
     }
@@ -2382,7 +2416,7 @@ app.post("/api/manage/qq/channels/groups", manageGuard, async (req, res) => {
       img = decodeImageUpload(data);
       if (img.error) return res.status(400).json({ message: img.error });
     }
-    const g = await QQChannel.create({ kind: "group", label: lab, number: num });
+    const g = await QQChannel.create({ kind: "group", label: lab, number: num, link: lnk });
     const fname = `qq-g-${g._id}.png`;
     if (img.buf) { fs.writeFileSync(path.join("public", fname), img.buf); g.qr = fname; await g.save(); }
     res.json({ message: "已添加", group: qqPublic(g) });
@@ -2397,9 +2431,14 @@ app.put("/api/manage/qq/channels/groups/:id", manageGuard, async (req, res) => {
   try {
     const g = await QQChannel.findById(req.params.id);
     if (!g || g.kind !== "group") return res.status(404).json({ message: "群不存在" });
-    const { label, number, data } = req.body || {};
+    const { label, number, link, data } = req.body || {};
     if (typeof label === "string") g.label = label.trim().slice(0, QQ_LABEL_MAX);
     if (typeof number === "string") g.number = number.trim().slice(0, QQ_NUM_MAX);
+    if (typeof link === "string") {
+      const v = cleanQqLink(link);
+      if (v === null) return res.status(400).json({ message: "链接必须以 http(s):// 开头且不超过 300 字" });
+      g.link = v;
+    }
     if (data) {
       const img = decodeImageUpload(data);
       if (img.error) return res.status(400).json({ message: img.error });

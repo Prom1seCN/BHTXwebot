@@ -258,8 +258,16 @@ async function loadQQ() {
   } catch (e) { return; }
   const bot = qqCache.bot || null;
   document.getElementById('qqBotNumber').value = bot ? (bot.number || '') : '';
-  document.getElementById('qqBotState').textContent = bot && bot.qr ? '二维码已上传' : '未传二维码';
+  document.getElementById('qqBotLink').value = bot ? (bot.link || '') : '';
+  document.getElementById('qqBotState').textContent = qqStateOf(bot);
   renderQQGroups();
+}
+
+// 展示当前二维码来源：链接优先（前端绘制），其次图片，都没有就是未设置
+function qqStateOf(doc) {
+  if (!doc) return '未设置';
+  if (doc.link) return '二维码由链接生成';
+  return doc.qr ? '二维码已上传（图片）' : '未设置';
 }
 
 let qqBusy = false;
@@ -269,14 +277,15 @@ async function qqGuard(fn) {
   try { await fn(); } finally { qqBusy = false; }
 }
 
-function qqRow(qid, kind, label, number, hasQr) {
+function qqRow(qid, kind, label, number, hasQr, link) {
   qid = String(qid || '');
   return '<div class="contrib-row" data-qid="' + escAttr(qid) + '">' +
     '<span class="qq-kind">' + kind + '</span>' +
-    '<input class="dash-input" value="' + escAttr(label) + '" maxlength="20" placeholder="群名">' +
-    '<input class="dash-input" value="' + escAttr(number) + '" maxlength="20" placeholder="群号">' +
-    '<input type="file" accept="image/png,image/jpeg">' +
-    '<span class="contrib-count">' + (hasQr ? '二维码已上传' : '未传二维码') + '</span>' +
+    '<input class="dash-input qq-f-label" value="' + escAttr(label) + '" maxlength="20" placeholder="群名">' +
+    '<input class="dash-input qq-f-number" value="' + escAttr(number) + '" maxlength="20" placeholder="群号">' +
+    '<input class="dash-input qq-f-link" value="' + escAttr(link) + '" maxlength="300" placeholder="加群链接 https://qm.qq.com/…（填了就前端生成二维码）">' +
+    '<input type="file" class="qq-f-file" accept="image/png,image/jpeg">' +
+    '<span class="contrib-count">' + (link ? '二维码由链接生成' : (hasQr ? '二维码已上传（图片）' : '未设置')) + '</span>' +
     '<button class="contrib-btn" onclick="saveQQGroup(\'' + escAttr(qid) + '\')">保存</button>' +
     (String(qid).indexOf('draft') === 0 ? '' : '<button class="contrib-btn del" onclick="deleteQQGroup(\'' + escAttr(qid) + '\')">删除</button>') +
     '</div>';
@@ -286,15 +295,16 @@ function renderQQGroups() {
   const box = document.getElementById('qqGroupList');
   const gs = qqCache.groups || [];
   box.innerHTML = gs.length
-    ? gs.map((g) => qqRow(g.id || g._id, '群', g.label, g.number, !!g.qr)).join('')
+    ? gs.map((g) => qqRow(g.id || g._id, '群', g.label, g.number, !!g.qr, g.link)).join('')
     : '<div class="state-sm">暂无群，点下方添加</div>';
 }
 
 function saveQQBot() {
   return qqGuard(async () => {
     const number = document.getElementById('qqBotNumber').value.trim();
+    const link = document.getElementById('qqBotLink').value.trim();
     try {
-      await qqApiReq('PUT', '/bot', { number });
+      await qqApiReq('PUT', '/bot', { number, link });
       document.getElementById('qqBotState').textContent = '已保存 ' + new Date().toLocaleTimeString('zh-CN');
       await loadQQ();
     } catch (e) { alert(e.message); }
@@ -327,13 +337,15 @@ function saveQQGroup(qid) {
   return qqGuard(async () => {
     const row = document.querySelector('[data-qid="' + qid + '"]');
     if (!row) return;
-    const inputs = row.querySelectorAll('input');
-    const label = inputs[0].value.trim(), number = inputs[1].value.trim();
-    if (!label && !number) return alert('请至少填写群名或群号');
+    const q = (sel) => row.querySelector(sel);
+    const label = q('.qq-f-label').value.trim();
+    const number = q('.qq-f-number').value.trim();
+    const link = q('.qq-f-link').value.trim();
+    if (!label && !number && !link) return alert('请至少填写群名、群号或加群链接');
     let data = '';
-    try { data = await readImageB64(inputs[2]); } catch (e) { return alert(e.message); }
+    try { data = await readImageB64(q('.qq-f-file')); } catch (e) { return alert(e.message); }
     try {
-      const body = { label, number };
+      const body = { label, number, link };
       if (data) body.data = data;
       if (String(qid).indexOf('draft') === 0) await qqApiReq('POST', '/channels/groups', body);
       else await qqApiReq('PUT', '/channels/groups/' + qid, body);

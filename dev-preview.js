@@ -144,8 +144,8 @@ const server = http.createServer((req, res) => {
     if (urlPath === '/api/user/profile') return json(res, 200, { displayName: '北化校友preV', isVerified: true, qqBound: true, contact: 'wx_demo_01' });
     if (urlPath === '/api/user/qq-unbind') return json(res, 200, { message: '已解除 QQ 绑定' });
     if (urlPath === '/api/qq') return json(res, 200, {
-      bot: { kind: 'bot', label: '', number: '100012345', qr: 'logo.png' },
-      groups: [{ id: 'p1', kind: 'group', label: '百花同行①群（预览）', number: '589785813', qr: 'logo.png' }]
+      bot: { kind: 'bot', label: '', number: '100012345', qr: 'logo.png', link: 'https://q.qq.com/qqbot/profile/?robot_appid=1905603882&robot_uin=4016038939' },
+      groups: [{ id: 'p1', kind: 'group', label: '百花同行①群（预览）', number: '589785813', qr: 'logo.png', link: 'https://qm.qq.com/q/FUYftf2xem' }]
     });
 
     // 数据看板示例数据（字段结构与 /api/stats/dashboard 一致，含累计总量 totals）
