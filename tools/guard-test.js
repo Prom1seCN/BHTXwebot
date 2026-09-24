@@ -20,7 +20,7 @@ const H = 3600 * 1000, D = 24 * H;
 function req(path, opts) {
   opts = opts || {};
   return new Promise((resolve, reject) => {
-    const headers = { "Content-Type": "application/json" };
+    const headers = Object.assign({ "Content-Type": "application/json" }, opts.headers || {});
     if (opts.xff) headers["X-Forwarded-For"] = opts.xff;
     const r = http.request(BASE + path, { method: opts.method || "GET", headers }, (res) => {
       let d = "";
@@ -68,6 +68,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const AG = conn.model("AuthGuard", new mongoose.Schema({ email: String, sends: [Date], fails: Number, failSince: Date, lockedUntil: Date }, { timestamps: true }));
   const AU = conn.model("Auth", new mongoose.Schema({ email: String, code: String, expiresAt: Date, lastSentAt: Date, failCount: Number }, { timestamps: true }));
   const SQ = conn.model("SmtpQuota", new mongoose.Schema({ key: String, count: Number }, { timestamps: true }));
+  const JS = conn.model("JoinStat", new mongoose.Schema({ openid: String, joinedAt: Date }, { timestamps: true }));
   const now = () => Date.now();
 
   // ---- S6 60 秒冷却仍在（第一次因 SMTP 不可达返回 500，但已记 lastSentAt）----
@@ -122,6 +123,37 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const g6 = await AG.findOne({ email: e6 });
   check("S4 正确验证码登录成功", ok.status === 200 && !!ok.body.token, ok);
   check("S4 成功后失败计数清零", g6 && g6.fails === 0 && !g6.lockedUntil, g6);
+
+  // ---- S7 发布每日 5 次上限（含"发一个取消一个"绕过并发的路子）----
+  const e7 = "100000007@buct.edu.cn";
+  await AU.create({ email: e7, code: "111222", expiresAt: new Date(now() + 5 * 60 * 1000), lastSentAt: new Date(now() - 2 * 60 * 1000) });
+  const login7 = await req("/api/auth/web-login", { method: "POST", body: { emailPrefix: "100000007", code: "111222" } });
+  const tok7 = login7.body && login7.body.token;
+  check("S7 测试账号登录成功", login7.status === 200 && !!tok7, login7);
+
+  const apiAs = (path, body, xff) => req(path, {
+    method: "POST", body, xff,
+    headers: { Authorization: "Bearer " + tok7 }
+  });
+  const future = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
+  const statuses = [];
+  for (let i = 1; i <= 6; i++) {
+    // 每次换 IP：绕开 IP 维度的 publishLimiter，只留身份维度的上限
+    const r = await apiAs("/api/trips", { from: "北化北区", to: "北京南站", date: future, time: "18:00", contact: "wx_test", capacity: 3 }, "10.7.7." + i);
+    statuses.push(r.status + (r.body && r.body.message ? ":" + r.body.message : ""));
+    if (r.status === 200 && r.body.trip) {
+      const id = r.body.trip._id || r.body.trip.id;
+      await req("/api/trips/" + id + "/status", {
+        method: "PUT", body: { action: "cancel" }, xff: "10.7.7." + i,
+        headers: { Authorization: "Bearer " + tok7 }
+      });
+      await JS.deleteMany({ openid: e7 });   // 模拟"1 小时窗口已过"，让 JoinStat 不干扰日上限的验证
+    }
+  }
+  const sixth = statuses[5];
+  check("S7 前 5 次发布均成功（取消后腾出并发名额）",
+    statuses.slice(0, 5).every((s) => s.startsWith("200")), statuses);
+  check("S7 第 6 次被每日上限拦住", /429/.test(sixth) && /今天已发布 5 个/.test(sixth), statuses);
 
   // ---- S5 全局发信熔断 ----
   const hourKey = "smtp-" + new Date().toISOString().slice(0, 13);

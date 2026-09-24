@@ -69,10 +69,11 @@
 
     <!-- ===== QQ 频道管理 ===== -->
     <section class="panel">
-      <h3 class="panel-title">QQ 频道 <span class="panel-sub">关于页「QQ机器人 & QQ群」的二维码与号，PNG/JPG ≤ 3MB</span></h3>
+      <h3 class="panel-title">QQ 频道 <span class="panel-sub">填了「链接」就由前端生成二维码（清晰、省流量）；不填则用上传的图片，PNG/JPG ≤ 3MB</span></h3>
       <div class="contrib-row">
         <span class="qq-kind">机器人</span>
         <input class="dash-input" id="qqBotNumber" maxlength="20" placeholder="机器人QQ号">
+        <input class="dash-input" id="qqBotLink" maxlength="300" placeholder="机器人主页链接 https://q.qq.com/…">
         <input type="file" accept="image/png,image/jpeg" onchange="uploadQQBot(this)">
         <span class="contrib-count" id="qqBotState"></span>
         <button class="contrib-btn" onclick="saveQQBot()">保存</button>

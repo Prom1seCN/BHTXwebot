@@ -944,4 +944,45 @@ const app = Vue.createApp({
   }
 });
 
+// ===== 二维码组件：把链接直接画成 SVG =====
+// 为什么画而不存图：官方群码截图 507KB 且放大发虚；链接本身只有一串字符，
+// 前端绘制后体积归零、矢量清晰，换群只需改一行文本。
+// 库：/vendor/qr-creator.min.js（全局 QrCreator，MIT，12KB，本地托管以守住零 CDN 约定）。
+// 兜底：库没加载或画不出来时，退化成可点击的加群链接（移动端点一下就能加）。
+app.component('qr-box', {
+  props: {
+    text: { type: String, default: '' },
+    size: { type: Number, default: 320 }
+  },
+  template:
+    '<div class="qr-box">' +
+      '<div v-if="ok" class="qr-canvas"></div>' +
+      '<a v-else class="qr-fallback" :href="text" target="_blank" rel="noopener">二维码暂不可用，点此直接打开</a>' +
+    '</div>',
+  data() { return { ok: true }; },
+  mounted() { this.draw(); },
+  watch: { text() { this.draw(); } },
+  methods: {
+    draw() {
+      const t = String(this.text || '').trim();
+      if (!t || typeof window.QrCreator === 'undefined') { this.ok = false; return; }
+      this.$nextTick(() => {
+        const box = this.$el.querySelector('.qr-canvas');
+        if (!box) return;
+        box.innerHTML = '';
+        try {
+          window.QrCreator.render({
+            text: t, radius: 0.05, margin: 0.05,
+            fgColor: '#0B1220', bgColor: '#FFFFFF', size: this.size
+          }, box);
+          this.ok = true;
+        } catch (e) {
+          console.warn('[qr-box] 绘制失败，退化为链接：', e.message);
+          this.ok = false;
+        }
+      });
+    }
+  }
+});
+
 app.mount('#app');

@@ -134,6 +134,7 @@ def main():
             (LOCAL + "/public/icon-192.png", REMOTE + "/public/icon-192.png"),
             (LOCAL + "/public/icon-512.png", REMOTE + "/public/icon-512.png"),
             (LOCAL + "/public/vendor/vue.global.prod.js", REMOTE + "/public/vendor/vue.global.prod.js"),
+            (LOCAL + "/public/vendor/qr-creator.min.js", REMOTE + "/public/vendor/qr-creator.min.js"),
         ]
         for l, r in files:
             if r == REMOTE + "/.env":

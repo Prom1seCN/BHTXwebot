@@ -569,18 +569,21 @@
     <h1 class="page-title">QQ机器人 &amp; QQ群</h1>
     <p class="qq-page-hint">扫码或复制号码，在 QQ 里搜索添加。添加机器人后，私聊就能发布、查询、拼车；进群 @机器人 同样可用。</p>
 
-    <section class="panel qq-card" v-if="qqData && qqData.bot && (qqData.bot.number || qqData.bot.qr)">
+    <section class="panel qq-card" v-if="qqData && qqData.bot && (qqData.bot.number || qqData.bot.link || qqData.bot.qr)">
       <h3 class="qq-card-title">QQ机器人</h3>
-      <img v-if="qqData.bot.qr" class="qq-qr" :src="'/' + qqData.bot.qr + '?v=' + qqTs" alt="机器人二维码">
+      <!-- 有链接就前端绘制二维码（矢量清晰、省掉几百 KB 截图）；没链接回退到上传的图片 -->
+      <qr-box v-if="qqData.bot.link" class="qq-qr" :text="qqData.bot.link" :size="320"></qr-box>
+      <img v-else-if="qqData.bot.qr" class="qq-qr" :src="'/' + qqData.bot.qr + '?v=' + qqTs" alt="机器人二维码">
       <div class="qq-card-no" v-if="qqData.bot.number">
         <span>{{ qqData.bot.number }}</span>
         <button class="btn-primary qq-card-copy" @click="copy(qqData.bot.number)">复制号码</button>
       </div>
     </section>
 
-    <section class="panel qq-card" v-for="g in (((qqData && qqData.groups) || []).filter((x) => x.number || x.qr))" :key="g.id">
+    <section class="panel qq-card" v-for="g in (((qqData && qqData.groups) || []).filter((x) => x.number || x.link || x.qr))" :key="g.id">
       <h3 class="qq-card-title">{{ g.label || '拼车群' }}</h3>
-      <img v-if="g.qr" class="qq-qr" :src="'/' + g.qr + '?v=' + qqTs" alt="群二维码">
+      <qr-box v-if="g.link" class="qq-qr" :text="g.link" :size="320"></qr-box>
+      <img v-else-if="g.qr" class="qq-qr" :src="'/' + g.qr + '?v=' + qqTs" alt="群二维码">
       <div class="qq-card-no" v-if="g.number">
         <span>{{ g.number }}</span>
         <button class="btn-primary qq-card-copy" @click="copy(g.number)">复制群号</button>
@@ -817,6 +820,7 @@
 
 </div>
 <script src="/vendor/vue.global.prod.js"></script>
-<script src="/app.js?v=3"></script>
+<script src="/vendor/qr-creator.min.js"></script>
+<script src="/app.js?v=4"></script>
 </body>
 </html>
