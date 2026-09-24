@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# BHTXweb 部署脚本 —— 在服务器上执行：bash /home/ubuntu/bhtxweb/deploy.sh
+# BHTXwebot 部署脚本 —— 在服务器上执行：bash /home/ubuntu/bhtxweb/deploy.sh
+# （仓库/文件夹名为 BHTXwebot；服务器部署目录与 pm2 应用名仍为旧的 bhtxweb，未随改名迁移）
 set -euo pipefail
 cd /home/ubuntu/bhtxweb
 

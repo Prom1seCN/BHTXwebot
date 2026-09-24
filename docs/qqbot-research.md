@@ -1,5 +1,5 @@
 ---
-title: QQ 官方机器人接入调研（BHTXweb 群聊撮合）
+title: QQ 官方机器人接入调研（BHTXwebot 群聊撮合）
 date: 2026-09-13
 status: 调研完成，待申请机器人账号
 ---

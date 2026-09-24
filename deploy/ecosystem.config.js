@@ -1,4 +1,4 @@
-// BHTXweb · pm2 配置（部署目录：/home/ubuntu/bhtxweb）
+// BHTXwebot · pm2 配置（部署目录：/home/ubuntu/bhtxweb）
 // 密钥集中在同目录 .env（Node 20 原生 --env-file），不进 git
 // 注意：cluster 模式不传 node_args，--env-file 会失效（实测踩坑），必须 fork
 module.exports = {

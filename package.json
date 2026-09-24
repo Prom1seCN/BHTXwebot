@@ -2,7 +2,7 @@
   "name": "bhtx-server",
   "version": "3.0.0",
   "private": true,
-  "description": "百花同行 BHTXweb 服务（网页版）",
+  "description": "百花同行 BHTXwebot 服务（网页 + QQ 机器人）",
   "main": "server.js",
   "scripts": {
     "start": "node --env-file=.env server.js"
