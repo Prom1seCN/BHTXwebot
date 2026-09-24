@@ -35,6 +35,7 @@ const crypto = require("crypto");
 const path = require("path");
 const app = express();
 app.set('trust proxy', 1);
+app.disable('x-powered-by');   // 不对外暴露 Express 版本指纹
 
 const PORT = process.env.PORT || 3000;
 const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017/bhtxweb"; // 新库；小程序时期的 bhtx 库保留为历史存档，不复用
@@ -45,7 +46,36 @@ if (!JWT_SECRET) {
   process.exit(1);
 }
 
-app.use(cors());
+// ===== 跨域与响应头 =====
+// 前端与 API 同源，生产上本就不需要 CORS。此前 `cors()` 默认对任意来源回
+// Access-Control-Allow-Origin: *（含任意方法与 authorization 头），等于允许任何网站
+// 在浏览器里读取接口数据——与 PROJECT.md「同源，无跨域」的约定相反，故改为白名单。
+// 鉴权走 localStorage 里的 Bearer token（无 Cookie/Set-Cookie、无 session），
+// 浏览器不会自动携带，因此经典 CSRF（借 Cookie 身份伪造跨站请求）在此不成立；
+// 写接口又统一要求 application/json（跨站表单发不出这个类型），两层都卡在 CORS 上。
+const CORS_ALLOW = new Set([
+  "https://bhtx.prom1se.cn",
+  "http://localhost:3001",   // dev-preview 本机预览
+  "http://127.0.0.1:3001"
+]);
+app.use(cors({
+  origin(origin, cb) {
+    // 无 Origin 头（同源导航、curl、服务器间调用）：不放行也不报错，只是不回 CORS 头
+    if (!origin) return cb(null, false);
+    return cb(null, CORS_ALLOW.has(origin));
+  },
+  methods: ["GET", "POST", "PUT", "DELETE"],
+  allowedHeaders: ["Content-Type", "Authorization", "x-admin-key"],
+  credentials: false,
+  maxAge: 600
+}));
+// 基础安全响应头（静态与 API 一律带上）
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "SAMEORIGIN");          // 站内无 iframe，禁外部嵌框防点击劫持
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  next();
+});
 // JSON 体积上限放宽到 6MB：赞助收款码截图以 base64 上传（3MB 图片编码后约 4MB）
 app.use(express.json({ limit: "6mb" }));
 
