@@ -1259,36 +1259,50 @@ async function smtpAllowed() {
 }
 
 // 登录失败累计：跨码不清零；满 failLimit 即锁定该邮箱并作废在途验证码
+// 记账本身失败绝不影响登录响应（防护是纵深，不该把一次输错变成 500）；
+// 用 upsert 而非 create，避免并发下两个请求同时插同一 email 撞唯一索引。
 async function noteLoginFailure(email) {
-  const now = new Date();
-  const g = await AuthGuard.findOne({ email });
-  if (!g) {
-    await AuthGuard.create({ email, fails: 1, failSince: now });
-    return;
+  try {
+    const now = new Date();
+    const g = await AuthGuard.findOne({ email });
+    if (!g) {
+      await AuthGuard.findOneAndUpdate(
+        { email },
+        { $set: { fails: 1, failSince: now } },
+        { upsert: true, setDefaultsOnInsert: true }
+      );
+      return;
+    }
+    if (g.failSince && now.getTime() - new Date(g.failSince).getTime() > GUARD.failWindowMs) {
+      g.fails = 1;
+      g.failSince = now;
+    } else {
+      g.fails = (g.fails || 0) + 1;
+      if (!g.failSince) g.failSince = now;
+    }
+    if (g.fails >= GUARD.failLimit) {
+      g.lockedUntil = new Date(now.getTime() + GUARD.lockMs);
+      g.fails = 0;
+      g.failSince = null;
+      await Auth.deleteMany({ email });   // 锁定同时作废在途验证码
+      console.error(`[WARN] 验证码连续输错满 ${GUARD.failLimit} 次，锁定邮箱 ${email.replace(/^(\d{3})\d+(\d{2})@/, "$1****$2@")} 至 ${g.lockedUntil.toISOString()}`);
+    }
+    await g.save();
+  } catch (e) {
+    console.error("[guard] 失败计数写入异常（不影响本次登录响应）:", e.message);
   }
-  if (g.failSince && now.getTime() - new Date(g.failSince).getTime() > GUARD.failWindowMs) {
-    g.fails = 1;
-    g.failSince = now;
-  } else {
-    g.fails = (g.fails || 0) + 1;
-    if (!g.failSince) g.failSince = now;
-  }
-  if (g.fails >= GUARD.failLimit) {
-    g.lockedUntil = new Date(now.getTime() + GUARD.lockMs);
-    g.fails = 0;
-    g.failSince = null;
-    await Auth.deleteMany({ email });   // 锁定同时作废在途验证码
-    console.error(`[WARN] 验证码连续输错满 ${GUARD.failLimit} 次，锁定邮箱 ${email.replace(/^(\d{3})\d+(\d{2})@/, "$1****$2@")} 至 ${g.lockedUntil.toISOString()}`);
-  }
-  await g.save();
 }
 
-// 登录成功即清零失败计数与锁定
+// 登录成功即清零失败计数与锁定（同样非致命）
 async function clearLoginFail(email) {
-  await AuthGuard.updateOne(
-    { email },
-    { $set: { fails: 0, failSince: null, lockedUntil: null } }
-  );
+  try {
+    await AuthGuard.updateOne(
+      { email },
+      { $set: { fails: 0, failSince: null, lockedUntil: null } }
+    );
+  } catch (e) {
+    console.error("[guard] 失败计数清零异常:", e.message);
+  }
 }
 
 app.post("/api/auth/send-code", sendCodeLimiter, async (req, res) => {
