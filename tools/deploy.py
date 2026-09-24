@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""BHTXweb 部署工具（开发用）
-用法：python tools/deploy.py <密码> <stage>
+"""BHTXwebot 部署工具（开发用）
+用法：python tools/deploy.py <stage> [extra_args]
 stage: recon | upload | start | nginx-check | nginx-cut | verify | stop-old
-密码只用于建立连接，不会打印。
+认证：SSH 私钥（~/.ssh/id_ed25519）。服务器已于 2026-09-14 关闭密码登录，勿再传密码。
 """
 import sys
 import os
@@ -10,16 +10,42 @@ import time
 import paramiko
 
 HOST, USER = "49.232.135.134", "ubuntu"
-PW = sys.argv[1] if len(sys.argv) > 1 else ""
-STAGE = sys.argv[2] if len(sys.argv) > 2 else "recon"
-LOCAL = r"D:\Projects\BHTXweb"
-REMOTE = "/home/ubuntu/bhtxweb"
+STAGES = {"recon", "upload", "start", "nginx-check", "nginx-cut", "verify", "stop-old"}
+_args = sys.argv[1:]
+if _args and _args[0] not in STAGES and len(_args) > 1 and _args[1] in STAGES:
+    # 兼容旧调用 `deploy.py <密码> <stage>`：提示后按旧签名移位解析
+    print("提示：已改密钥认证，不再需要密码参数（该行内容请忽略/清除）")
+    _args = _args[1:]
+STAGE = _args[0] if _args else "recon"
+EXTRA = _args[1:]
+LOCAL = r"D:\Projects\BHTXwebot"
+REMOTE = "/home/ubuntu/bhtxweb"  # 服务器部署目录沿用旧名，未随仓库改名迁移
+
+
+def load_key():
+    # 本机的 ~/.ssh/id_ed25519 是 Windows ssh-keygen 生成的：注释为 GBK 且私钥段恰好
+    # 8 字节对齐、无填充——OpenSSH/cryptography 认，paramiko 的 _unpad_openssh 判
+    # "Invalid key"（paramiko 已知短板）。因此直接解析失败时，用 cryptography 加载后
+    # 重新序列化成带规范填充的 OpenSSH 格式再喂 paramiko（私钥本体不变）。
+    import io
+    path = os.path.expanduser("~/.ssh/id_ed25519")
+    if not os.path.isfile(path):
+        sys.exit("找不到 SSH 私钥（~/.ssh/id_ed25519），无法连接服务器")
+    try:
+        return paramiko.Ed25519Key.from_private_key_file(path)
+    except paramiko.SSHException:
+        from cryptography.hazmat.primitives.serialization import (
+            load_ssh_private_key, Encoding, PrivateFormat, NoEncryption)
+        ck = load_ssh_private_key(open(path, "rb").read(), None)
+        pem = ck.private_bytes(Encoding.PEM, PrivateFormat.OpenSSH, NoEncryption())
+        return paramiko.Ed25519Key.from_private_key(io.StringIO(pem.decode()))
 
 
 def connect():
     c = paramiko.SSHClient()
     c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    c.connect(HOST, username=USER, password=PW, timeout=15, banner_timeout=15)
+    c.connect(HOST, username=USER, pkey=load_key(),
+              timeout=15, banner_timeout=15, allow_agent=False, look_for_keys=False)
     return c
 
 
@@ -42,8 +68,8 @@ def run(c, cmd, timeout=180, title=None):
 
 
 def sudo(c, cmd, timeout=120, title=None):
-    # 通过 stdin 传密码给 sudo -S，命令行不留痕
-    return run(c, "sudo -S -p '' bash -c \"%s\"" % cmd.replace('"', '\\"'),
+    # 服务器 ubuntu 为 NOPASSWD sudo（2026-09-14 核实），无需再喂密码
+    return run(c, "sudo bash -c \"%s\"" % cmd.replace('"', '\\"'),
                timeout=timeout, title=title)
 
 
@@ -125,10 +151,12 @@ def main():
 
     elif STAGE == "nginx-cut":
         # 由 recon/nginx-check 确认配置文件路径后调用：
-        # python tools/deploy.py PW nginx-cut /etc/nginx/sites-available/xxx 3000 3100
-        conf = sys.argv[3]
-        old_port = sys.argv[4] if len(sys.argv) > 4 else "3000"
-        new_port = sys.argv[5] if len(sys.argv) > 5 else "3100"
+        # python tools/deploy.py nginx-cut /etc/nginx/sites-available/xxx 3000 3100
+        if not EXTRA:
+            sys.exit("用法：deploy.py nginx-cut <conf> <旧端口> <新端口>")
+        conf = EXTRA[0]
+        old_port = EXTRA[1] if len(EXTRA) > 1 else "3000"
+        new_port = EXTRA[2] if len(EXTRA) > 2 else "3100"
         sudo(c, "cp %s %s.bak-$(date +%%Y%%m%%d%%H%%M)" % (conf, conf), title="备份 nginx 配置")
         sudo(c, "sed -i 's/127.0.0.1:%s/127.0.0.1:%s/g; s/localhost:%s/localhost:%s/g; s/:%s;/:%s;/g' %s"
              % (old_port, new_port, old_port, new_port, old_port, new_port, conf),

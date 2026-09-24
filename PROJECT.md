@@ -1,6 +1,7 @@
 # 百花同行 · 项目全貌
 
-> 本文档完整介绍百花同行（BHTXweb）的定位、架构、数据模型、业务规则、QQ 机器人、安全边界与运维。面向接手维护的开发者。README 是使用入口，本文是原理与边界。
+> 本文档完整介绍百花同行（BHTXwebot）的定位、架构、数据模型、业务规则、QQ 机器人、安全边界与运维。面向接手维护的开发者。README 是使用入口，本文是原理与边界。
+> 命名：2026-09-19 文件夹与 GitHub 仓库由 BHTXweb / BHTX-web 统一改名为 **BHTXwebot**；线上标识符**未随改名迁移**，仍是旧名（MongoDB 库 `bhtxweb`、pm2 应用 `bhtxweb`、部署目录 `/home/ubuntu/bhtxweb`、localStorage key `bhtxweb_*`）。
 
 ---
 

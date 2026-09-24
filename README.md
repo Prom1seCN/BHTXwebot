@@ -95,8 +95,8 @@ flowchart LR
 ## 🚀 快速开始
 
 ```bash
-git clone https://github.com/Prom1seCN/BHTX-web.git
-cd BHTX-web
+git clone https://github.com/Prom1seCN/BHTXwebot.git
+cd BHTXwebot
 npm install
 cp .env.example .env   # 填 JWT_SECRET / SMTP_PASS / ADMIN_KEY / QQ_BOT_* / LLM_API_KEY
 node --env-file=.env server.js
