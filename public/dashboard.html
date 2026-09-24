@@ -39,6 +39,12 @@
       <button class="chip" data-days="90" onclick="setDays(90)">近 90 天</button>
     </div>
 
+    <!-- ===== 累计总量（全量口径：不随时间档切换，也不受埋点 90 天 TTL 影响）===== -->
+    <section class="panel">
+      <h3 class="panel-title">累计总量 <span class="panel-sub" id="totalsSince">上线以来</span></h3>
+      <div id="totals" class="stats-grid"><div class="state-sm">加载中…</div></div>
+    </section>
+
     <!-- ===== 转化漏斗 ===== -->
     <section class="panel">
       <h3 class="panel-title">转化漏斗 <span class="panel-sub">去重人数</span></h3>

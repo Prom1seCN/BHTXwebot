@@ -1,5 +1,5 @@
 /**
- * 百花同行 Web (BHTXweb) - 云服务器端
+ * 百花同行 BHTXwebot - 云服务器端
  *
  * 版本：v3.0.0（公开使用前的开发版；QQ 官方机器人为后续接口层）
  *
@@ -1373,6 +1373,52 @@ async function buildFunnel(days) {
   return { start, funnel, fee };
 }
 
+// 累计总量：平台上线以来的全量口径。
+// 与漏斗/趋势的区别——这里只聚合业务集合（Trip/User）本身，既不受看板时间档影响，
+// 也不受埋点集合 90 天 TTL 影响；因此「历史加入人次」这类只存在于埋点的指标不在此列
+// （Trip.headcount 是"当前在车人数"，成员退出即减，不能当历史人次用）。
+async function buildTotals() {
+  const [verifiedUsers, tripAgg, firstUser] = await Promise.all([
+    User.countDocuments({ isVerified: true }),
+    Trip.aggregate([
+      {
+        $group: {
+          _id: null,
+          trips: { $sum: 1 },
+          cancelled: { $sum: { $cond: [{ $eq: ["$status", "cancelled"] }, 1, 0] } },
+          matched: {
+            $sum: {
+              $cond: [
+                { $gt: [{ $size: { $filter: { input: { $ifNull: ["$members", []] }, as: "m", cond: { $eq: ["$$m.role", "passenger"] } } } }, 0] },
+                1, 0
+              ]
+            }
+          },
+          costActual: { $sum: { $cond: [{ $gt: ["$actualCost", 0] }, "$actualCost", 0] } },
+          costFilled: { $sum: { $cond: [{ $gt: ["$actualCost", 0] }, 1, 0] } },
+          firstAt: { $min: "$createdAt" }
+        }
+      }
+    ]),
+    User.findOne({}).sort({ createdAt: 1 }).select("createdAt").lean()
+  ]);
+
+  const t = tripAgg[0] || {};
+  const starts = [t.firstAt, firstUser && firstUser.createdAt].filter(Boolean).map((d) => new Date(d).getTime());
+  const sinceTs = starts.length ? Math.min(...starts) : null;
+
+  return {
+    verifiedUsers,
+    trips: t.trips || 0,
+    cancelled: t.cancelled || 0,
+    matched: t.matched || 0,
+    costActual: Math.round((t.costActual || 0) * 10) / 10,
+    costFilled: t.costFilled || 0,
+    since: sinceTs ? new Date(sinceTs).toISOString() : null,
+    daysOnline: sinceTs ? Math.max(1, Math.ceil((Date.now() - sinceTs) / 86400000)) : 0
+  };
+}
+
 // 转化漏斗（V1.3，ADMIN_KEY 鉴权）
 app.get("/api/stats/funnel", async (req, res) => {
   const adminKey = req.headers["x-admin-key"];
@@ -1446,7 +1492,11 @@ app.get("/api/stats/dashboard", async (req, res) => {
       samples: durSamples
     };
 
-    res.json({ days, funnel, fee, daily, match, generatedAt: new Date().toISOString() });
+    // 累计总量是附加口径：聚合出错只丢这一项，不连带整个看板 500
+    let totals = null;
+    try { totals = await buildTotals(); } catch (e) { console.error("累计总量聚合失败:", e); }
+
+    res.json({ days, funnel, fee, daily, match, totals, generatedAt: new Date().toISOString() });
   } catch (err) {
     console.error("获取看板数据失败:", err);
     res.status(500).json({ message: "服务器错误" });
