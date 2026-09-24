@@ -262,6 +262,41 @@ authSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 }); // TTL：过期�
 const Trip = mongoose.model("Trip", tripSchema);
 const Auth = mongoose.model("Auth", authSchema);
 
+// ===== 验证码防护计数（按邮箱，不按 IP）=====
+// 为什么不用 IP：换 IP 对攻击者几乎零成本（本机实测——换一个 X-Forwarded-For 值就拿到一个
+// 全新的限流桶），而校园网/CGNAT 出口又让一栋楼共享同一个 IP，按 IP 既挡不住人又误伤同学。
+// 真正被消耗的是「某个邮箱的收件安宁」和「163 账号的发信配额」——后者是全站共享资源，
+// 被打空就是所有人都收不到验证码、等于登录整体下线，所以它必须有自己的熔断。
+// 注意：这些计数不能挂在 Auth 文档上——Auth 有 expiresAt 的 TTL（5 分钟即回收），
+// 配额会被 Mongo 自动清空，攻击者只要等 5 分钟就能重置。故单独建集合，且 30 天不动才回收。
+const GUARD = {
+  sendPerHour: 5,                                  // 单邮箱：1 小时内最多 5 张码
+  sendPerDay: 10,                                  // 单邮箱：24 小时内最多 10 张码
+  failLimit: 10,                                   // 单邮箱：1 小时内累计输错 10 次即锁定
+  failWindowMs: 60 * 60 * 1000,
+  lockMs: 30 * 60 * 1000,                          // 锁定时长（拒发 + 拒登）
+  smtpWarnPerHour: 150,                            // 全局发信：软告警（只记日志）
+  smtpMaxPerHour: Number(process.env.SMTP_HOURLY_MAX || 400)  // 全局发信：熔断
+};
+
+const authGuardSchema = new mongoose.Schema({
+  email: { type: String, required: true, unique: true },
+  sends: { type: [Date], default: [] },            // 最近发码时间（滚动窗口用）
+  fails: { type: Number, default: 0 },             // 失败累计：跨码不清零（发新码不再重置预算）
+  failSince: { type: Date, default: null },        // 失败计数窗口起点
+  lockedUntil: { type: Date, default: null }       // 锁定到期
+}, { timestamps: true });
+authGuardSchema.index({ updatedAt: 1 }, { expireAfterSeconds: 30 * 24 * 3600 });
+
+const smtpQuotaSchema = new mongoose.Schema({
+  key: { type: String, required: true, unique: true },   // 'smtp-2026-09-24T13'（小时桶）
+  count: { type: Number, default: 0 }
+}, { timestamps: true });
+smtpQuotaSchema.index({ createdAt: 1 }, { expireAfterSeconds: 2 * 3600 });
+
+const AuthGuard = mongoose.model("AuthGuard", authGuardSchema);
+const SmtpQuota = mongoose.model("SmtpQuota", smtpQuotaSchema);
+
 const userSchema = new mongoose.Schema({
   // ── 身份主键 ──
   // 本项目中它的值就是北化邮箱（如 2024010101@buct.edu.cn）。
@@ -492,10 +527,12 @@ setInterval(expireOverdueTrips, 60 * 1000);
 setTimeout(expireOverdueTrips, 5000);
 
 // ===== SMTP 配置 =====
+// host/port/secure 可用 env 覆盖：线上不设这些变量，行为与原来完全一致（smtp.163.com:465 SSL）；
+// 覆盖的能力只为本地测试——没有它，任何发码路径的测试都会拿真实 163 账号做失败登录，可能触发对方风控。
 const transporter = nodemailer.createTransport({
-  host: "smtp.163.com",
-  port: 465,
-  secure: true,
+  host: process.env.SMTP_HOST || "smtp.163.com",
+  port: Number(process.env.SMTP_PORT || 465),
+  secure: process.env.SMTP_SECURE !== "false",
     auth: {
       user: process.env.SMTP_USER || "bhtxadmin@163.com",
       pass: process.env.SMTP_PASS
@@ -1154,6 +1191,91 @@ app.get('/api/trips/:id', async (req, res) => {
   }
 });
 
+// ===== 验证码防护：全部按邮箱计数（键 = 被消耗的资源，不是来源 IP）=====
+// 说明：先读后写，并发下可能有毫秒级竞态（最多多放行一次尝试）；
+// 这里刻意不追求严格原子——60 秒冷却与 IP 兜底限流已经把并发面压得很小，
+// 换来的是逻辑可读、且不会因为一个 $inc 写坏而锁死正常同学。
+async function guardOf(email) {
+  return AuthGuard.findOne({ email }).lean();
+}
+
+// 锁定期内一律拒绝（发码与登录共用同一把锁）
+function lockMsg(g, now) {
+  if (!g || !g.lockedUntil) return null;
+  const left = new Date(g.lockedUntil).getTime() - now;
+  if (left <= 0) return null;
+  return `尝试次数过多，已暂停该邮箱的验证码服务，请 ${Math.ceil(left / 60000)} 分钟后再试`;
+}
+
+// 发码前检查：锁定 → 小时配额 → 日配额
+async function checkSendGuard(email) {
+  const now = Date.now();
+  const g = await guardOf(email);
+  const locked = lockMsg(g, now);
+  if (locked) return { ok: false, message: locked };
+  const sends = (g && g.sends) || [];
+  const inHour = sends.filter((t) => now - new Date(t).getTime() < 3600 * 1000).length;
+  const inDay = sends.filter((t) => now - new Date(t).getTime() < 24 * 3600 * 1000).length;
+  if (inHour >= GUARD.sendPerHour) return { ok: false, message: "该邮箱本小时验证码次数已用完，请 1 小时后再试" };
+  if (inDay >= GUARD.sendPerDay) return { ok: false, message: "该邮箱今日验证码次数已用完，请明天再试" };
+  return { ok: true };
+}
+
+// 占一次发码额度（在真正 sendMail 之前调用：失败也计数，避免用报错刷额度）
+async function recordSend(email) {
+  await AuthGuard.findOneAndUpdate(
+    { email },
+    { $push: { sends: { $each: [new Date()], $slice: -40 } } },   // 只留最近 40 条，防数组膨胀
+    { upsert: true, setDefaultsOnInsert: true }
+  );
+}
+
+// 全局发信熔断：$inc 原子自增，超阈值即停发（被拒的尝试也计数，方向保守）
+async function smtpAllowed() {
+  const key = "smtp-" + new Date().toISOString().slice(0, 13);
+  const doc = await SmtpQuota.findOneAndUpdate(
+    { key }, { $inc: { count: 1 } }, { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
+  if (doc.count > GUARD.smtpMaxPerHour) return false;
+  if (doc.count === GUARD.smtpWarnPerHour) {
+    console.error(`[WARN] 本小时验证码已发 ${doc.count} 封，接近 163 配额，请检查是否被刷`);
+  }
+  return true;
+}
+
+// 登录失败累计：跨码不清零；满 failLimit 即锁定该邮箱并作废在途验证码
+async function noteLoginFailure(email) {
+  const now = new Date();
+  const g = await AuthGuard.findOne({ email });
+  if (!g) {
+    await AuthGuard.create({ email, fails: 1, failSince: now });
+    return;
+  }
+  if (g.failSince && now.getTime() - new Date(g.failSince).getTime() > GUARD.failWindowMs) {
+    g.fails = 1;
+    g.failSince = now;
+  } else {
+    g.fails = (g.fails || 0) + 1;
+    if (!g.failSince) g.failSince = now;
+  }
+  if (g.fails >= GUARD.failLimit) {
+    g.lockedUntil = new Date(now.getTime() + GUARD.lockMs);
+    g.fails = 0;
+    g.failSince = null;
+    await Auth.deleteMany({ email });   // 锁定同时作废在途验证码
+    console.error(`[WARN] 验证码连续输错满 ${GUARD.failLimit} 次，锁定邮箱 ${email.replace(/^(\d{3})\d+(\d{2})@/, "$1****$2@")} 至 ${g.lockedUntil.toISOString()}`);
+  }
+  await g.save();
+}
+
+// 登录成功即清零失败计数与锁定
+async function clearLoginFail(email) {
+  await AuthGuard.updateOne(
+    { email },
+    { $set: { fails: 0, failSince: null, lockedUntil: null } }
+  );
+}
+
 app.post("/api/auth/send-code", sendCodeLimiter, async (req, res) => {
   try {
     const { emailPrefix } = req.body;
@@ -1174,6 +1296,17 @@ app.post("/api/auth/send-code", sendCodeLimiter, async (req, res) => {
     const existingAuth = await Auth.findOne({ email }).select("lastSentAt").lean();
     if (existingAuth && existingAuth.lastSentAt && Date.now() - existingAuth.lastSentAt.getTime() < 60 * 1000) {
       return res.status(429).json({ message: "发送太频繁，请 1 分钟后再试" });
+    }
+
+    // 按邮箱的配额与锁定（换 IP 无效；IP 那条限流退居兜底）
+    const sg = await checkSendGuard(email);
+    if (!sg.ok) return res.status(429).json({ message: sg.message });
+    await recordSend(email);
+
+    // 全局发信熔断：保住 163 账号，别让少数人把全站登录打死
+    if (!(await smtpAllowed())) {
+      console.error("[WARN] 验证码发信已触发小时熔断，本小时后续请求一律拒发");
+      return res.status(429).json({ message: "系统繁忙，请稍后再试" });
     }
 
     await Auth.findOneAndUpdate(
@@ -1216,9 +1349,16 @@ app.post("/api/auth/web-login", webLoginLimiter, async (req, res) => {
     }
 
     const email = `${emailPrefix}@buct.edu.cn`;
+
+    // 锁定期内直接拒绝：锁定键是邮箱，换 IP / 换设备都绕不过
+    const lg = lockMsg(await guardOf(email), Date.now());
+    if (lg) return res.status(429).json({ message: lg });
+
     const authRecord = await Auth.findOne({ email, code: String(code), expiresAt: { $gt: new Date() } });
     if (!authRecord) {
-      // 按邮箱累计失败次数：错满 5 次作废当前码（每码最多 5 次机会；配合发码 60s 冷却与 5 分钟时效）
+      // 两层失败计数：① 当前这张码错满 5 次即作废（发新码重来）；② 邮箱维度累计错满 10 次锁定 30 分钟
+      // —— 第二层是本次新增的关键：旧实现只有第一层，而发码会把 failCount 清零，等于错误预算跟着码走
+      await noteLoginFailure(email);
       const cur = await Auth.findOne({ email });
       if (cur) {
         cur.failCount = (cur.failCount || 0) + 1;
@@ -1250,6 +1390,7 @@ app.post("/api/auth/web-login", webLoginLimiter, async (req, res) => {
     }
 
     await Auth.deleteMany({ email });
+    await clearLoginFail(email);          // 登录成功即清零失败累计与锁定
     const token = jwt.sign({ openid: user.openid }, JWT_SECRET, { expiresIn: "7d" });
     console.log(`[web-login] 登录成功: ${email.replace(/^(\d{3})\d+(\d{2})@/, "$1****$2@")}`);
     trackEvent("user_login", "", email);
