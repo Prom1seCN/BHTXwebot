@@ -1,4 +1,4 @@
-/* 百花同行 Web (BHTXweb) —— 前端应用
+/* 百花同行 BHTXwebot —— 前端应用
  * 纯前端逻辑，所有业务规则由后端 API 提供（不重复实现）
  */
 
@@ -252,6 +252,13 @@ const app = Vue.createApp({
     }
   },
 
+  watch: {
+    // 取消登录（未成功）时作废「登录后自动跳转」的待办，避免下次从别处登录时被莫名带进发布/行程页
+    loginOpen(v) {
+      if (!v && !this.isLoggedIn) { this._pendingTrips = false; this._pendingPublish = false; }
+    }
+  },
+
   methods: {
     // ================= API =================
     async api(path, opts) {
@@ -266,7 +273,14 @@ const app = Vue.createApp({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        if (res.status === 401) this.logout(true);
+        // 401（无 token / token 失效）：先清本地登录态，再给可读文案——不把服务端原始提示「缺少或无效的 Authorization 头」甩到界面上
+        if (res.status === 401) {
+          const hadToken = !!this.token;
+          this.logout(true);
+          const e = new Error(hadToken ? '登录已过期，请重新邮箱认证' : '请登录后重试');
+          e.status = 401;
+          throw e;
+        }
         const e = new Error((data && data.message) || '请求失败');
         e.status = res.status;
         throw e;
@@ -298,6 +312,8 @@ const app = Vue.createApp({
     go(view, fromHash) {
       // 行程历史需要身份，未认证时转到邮箱认证
       if (view === 'trips' && !this.isLoggedIn) { this.askAuthForTrips(); return; }
+      // 发布需「已认证」身份；守卫放在 go() 里才覆盖 hash 直达/刷新（#/publish）这条绕过按钮的路径
+      if (view === 'publish' && !this.isLoggedIn) { this.askAuthForPublish(); return; }
 
       this.view = view;
       if (!fromHash) location.hash = view === 'hall' ? '#/' : '#/' + view;
@@ -315,9 +331,16 @@ const app = Vue.createApp({
       setTimeout(() => { if (!this.isLoggedIn) this.openLogin(); }, 600);
     },
 
+    // 未认证时进「发布行程」（含刷新 #/publish）：落回大厅并引导登录，避免停在发布页填完才报错
+    askAuthForPublish() {
+      this._pendingPublish = true;
+      this.showToast('请登录后重试');
+      this.go('hall');
+      setTimeout(() => { if (!this.isLoggedIn) this.openLogin(); }, 600);
+    },
+
     goPublish() {
-      if (!this.isLoggedIn) { this.openLogin(); return; }
-      this.go('publish');
+      this.go('publish');   // 未登录时由 go() 的守卫引导到邮箱认证
     },
 
     handleHash() {
@@ -495,6 +518,8 @@ const app = Vue.createApp({
     // ================= 发布 =================
     async submitTrip() {
       this.publishError = '';
+      // 兜底：会话中途失效（token 过期）停在本页时，提交前先引导登录，不发无效请求
+      if (!this.isLoggedIn) { this.publishError = '请登录后重试'; this.openLogin(); return; }
       const f = this.form;
       const from = f.from === '__custom__' ? f.fromCustom : f.from;
       const to = f.to === '__custom__' ? f.toCustom : f.to;
@@ -776,6 +801,10 @@ const app = Vue.createApp({
         if (this._pendingTrips) {
           this._pendingTrips = false;
           this.go('trips');
+        }
+        if (this._pendingPublish) {
+          this._pendingPublish = false;
+          this.go('publish');
         }
         if (this.view === 'detail') this.loadMembers();
         if (this.view === 'trips') this.loadMine();

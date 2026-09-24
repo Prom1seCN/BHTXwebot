@@ -148,6 +148,27 @@ const server = http.createServer((req, res) => {
       groups: [{ id: 'p1', kind: 'group', label: '百花同行①群（预览）', number: '589785813', qr: 'logo.png' }]
     });
 
+    // 数据看板示例数据（字段结构与 /api/stats/dashboard 一致，含累计总量 totals）
+    if (urlPath === '/api/stats/dashboard') {
+      const DAILY_TYPES = ['auth_code_sent', 'user_login', 'trip_publish', 'trip_join', 'contact_copy', 'trip_leave'];
+      const daily = [];
+      for (let i = 13; i >= 0; i--) {
+        const d = new Date(Date.now() - i * 86400000 + 8 * 3600 * 1000).toISOString().slice(0, 10);
+        const item = { date: d };
+        DAILY_TYPES.forEach((t, k) => { item[t] = (i % 5) + k; });
+        daily.push(item);
+      }
+      return json(res, 200, {
+        days: 30,
+        funnel: { auth_code_sent: 61, user_login: 48, trip_publish: 17, trip_join: 22, contact_copy: 14 },
+        fee: { avgPerPerson: 32.5, samples: 17, actualAvg: 30, actualSamples: 9, totalActual: 486, totalEstimated: 712, fillRate: 53 },
+        daily,
+        match: { published: 17, withJoiner: 11, joinRate: 64.7, avgFirstJoinMs: 5400000, samples: 11 },
+        totals: { verifiedUsers: 52, trips: 34, cancelled: 3, matched: 19, costActual: 968.5, costFilled: 15, since: '2026-09-12T10:00:00.000Z', daysOnline: 12 },
+        generatedAt: new Date().toISOString()
+      });
+    }
+
     return json(res, 200, { message: 'ok（预览）' });
   })();
 });

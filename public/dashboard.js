@@ -44,6 +44,7 @@ function renderAll(d) {
   drawChart();
   renderMatch(d.match);
   renderFee(d.fee);
+  renderTotals(d.totals);
   const t = new Date(d.generatedAt);
   document.getElementById('updatedAt').textContent =
     '更新于 ' + String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0');
@@ -159,6 +160,27 @@ function renderMatch(m) {
       '<span class="stat-value">' + humanizeMs(m.avgFirstJoinMs) + '</span>' +
     '</div>' +
     '<div class="stat-hint">时长样本 ' + m.samples + ' 个（仅统计被加入的行程）</div>';
+}
+
+/* ===== 累计总量（全量口径，与上方时间档无关）===== */
+function renderTotals(t) {
+  const box = document.getElementById('totals');
+  if (!t) { box.innerHTML = '<div class="state-sm">当前服务端未提供累计数据</div>'; return; }
+  const cell = (label, value, unit) =>
+    '<div class="stat-item">' +
+      '<span class="stat-label">' + label + '</span>' +
+      '<span class="stat-value">' + value + '<span class="unit">' + unit + '</span></span>' +
+    '</div>';
+  box.innerHTML =
+    cell('认证用户', t.verifiedUsers, '人') +
+    cell('累计行程', t.trips, '个') +
+    cell('已撮合行程', t.matched, '个') +
+    cell('累计车费 · 实际填写', t.costActual, '元') +
+    cell('车费已填行程', t.costFilled, '个') +
+    cell('上线天数', t.daysOnline, '天') +
+    '<div class="stat-hint">全量业务数据（Trip / User），不随时间档变化；含已取消行程 ' + t.cancelled + ' 个' +
+      (t.since ? '，首条记录 ' + String(t.since).slice(0, 10) : '') +
+      '。历史加入人次只存在于埋点（90 天自动过期），故不计入累计。</div>';
 }
 
 /* ===== 人均费用 ===== */
