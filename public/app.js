@@ -49,6 +49,8 @@ const app = Vue.createApp({
 
       // ---- 大厅 ----
       trips: [],
+      externalTrips: [],      // 同行雷达：第三方公开帖子聚合
+      extSheet: null,         // 同行雷达：当前查看原文的那条
       loading: false,
       dateFilter: 'all',      // all | today | tomorrow | after | 具体日期 YYYY-MM-DD
       fromFilter: '',
@@ -221,6 +223,17 @@ const app = Vue.createApp({
         .sort((a, b) => String(a.date + a.time).localeCompare(String(b.date + b.time)));
     },
 
+    // 同行雷达：跟随日期筛选（出发地不参与——第三方帖子常未注明起点）
+    visibleExternal() {
+      const target = this.targetDate;
+      return (this.externalTrips || [])
+        .filter(t => {
+          if (target && t.date !== target) return false;
+          return true;
+        })
+        .sort((a, b) => String(a.date + a.time).localeCompare(String(b.date + b.time)));
+    },
+
     emptyTitle() {
       if (this.fromFilter) return '「' + this.fromFilter + '」暂无行程';
       if (this.dateFilter === 'all') return '暂无行程';
@@ -358,13 +371,45 @@ const app = Vue.createApp({
     async reloadHall() {
       this.loading = true;
       try {
-        const list = await this.api('/trips');
+        // 本站行程与同行雷达并行拉取；雷达失败不影响大厅主列表
+        const [list, ext] = await Promise.all([
+          this.api('/trips'),
+          this.api('/external-trips').catch(() => [])
+        ]);
         this.trips = (list || []).map(normTrip);
+        this.externalTrips = (Array.isArray(ext) ? ext : []).map((t) =>
+          Object.assign({}, t, { displayDate: fmtDateCN(t.date) }));
       } catch (e) {
         this.showToast(e.message || '加载失败');
       } finally {
         this.loading = false;
       }
+    },
+
+    // 同行雷达：查看原帖（需登录 —— 仅信息查询工具，认证后才展开详情）
+    // 注意：不要叫 openExternal，那个名字已被「打开外链」占用（见文件后段）
+    openExtRaw(t) {
+      if (!this.isLoggedIn) {
+        this.showToast('查看原帖需先完成邮箱认证');
+        setTimeout(() => { if (!this.isLoggedIn) this.openLogin(); }, 600);
+        return;
+      }
+      this.extSheet = t;
+      this.view = 'extdetail';
+      window.scrollTo(0, 0);
+    },
+
+    // 同行雷达：发帖时间显示（如「2 小时前」/「10-01 14:05」）
+    fmtPosted(iso) {
+      if (!iso) return '未知';
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return '未知';
+      const diff = Date.now() - d.getTime();
+      if (diff < 60000) return '刚刚';
+      if (diff < 3600000) return Math.floor(diff / 60000) + ' 分钟前';
+      if (diff < 86400000) return Math.floor(diff / 3600000) + ' 小时前';
+      const p = n => String(n).padStart(2, '0');
+      return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
     },
 
     // ================= 详情 =================

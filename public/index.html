@@ -153,6 +153,10 @@
     </div>
 
     <template v-else>
+      <div class="hall-head">
+        <h3 class="hall-title">预约同行</h3>
+        <span class="hall-note">北化同学发布的行程，加入后可互看联系方式</span>
+      </div>
       <div v-if="visibleTrips.length" class="list">
         <article v-for="(t, i) in visibleTrips" :key="t.id" class="card" :style="{'--i': i}" @click="openTrip(t.id)">
           <div class="card-head">
@@ -187,6 +191,67 @@
         <div class="empty-title">{{ emptyTitle }}</div>
         <button class="btn-primary" @click="go('publish')">发布行程</button>
       </div>
+    </template>
+
+    <!-- ===== 同行雷达（第三方公开信息聚合，非本站行程）===== -->
+    <section v-if="visibleExternal.length" class="radar">
+      <div class="hall-head">
+        <h3 class="hall-title">同行雷达</h3>
+        <span class="hall-note">来自校内论坛的公开拼车帖 · 仅信息展示</span>
+      </div>
+      <div class="list">
+        <article v-for="(t, i) in visibleExternal" :key="t._id" class="card card-ext"
+                 :style="{'--i': i}" @click="openExtRaw(t)">
+          <div class="card-head">
+            <span class="card-when">{{ t.displayDate || t.date }} {{ t.time }} 出发</span>
+            <span class="ext-src">{{ t.source }}</span>
+          </div>
+          <div class="route">
+            <div class="rp"><span class="node start"></span><span class="loc">{{ t.from || '未注明' }}</span></div>
+            <div class="rp"><span class="node end"></span><span class="loc">{{ t.to }}</span></div>
+          </div>
+          <div class="card-foot">
+            <span class="ext-hint">非本站发布</span>
+            <span class="more">{{ isLoggedIn ? '查看原文 ›' : '登录后查看 ›' }}</span>
+          </div>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===== 同行雷达：原帖详情（结构与「行程详情」保持一致）===== -->
+  <main v-if="view==='extdetail'" class="page">
+    <div class="page-head">
+      <button class="back" aria-label="返回" @click="go('hall')">
+        <svg class="back-ico" viewBox="0 0 24 24"><use href="#i-back"/></svg>
+      </button>
+    </div>
+
+    <div v-if="!extSheet" class="loading"><span class="spin"></span>加载中</div>
+    <template v-else>
+      <section class="panel">
+        <div class="badge ext-badge">{{ extSheet.source }}</div>
+        <div class="route-big">
+          <span class="loc">{{ extSheet.from || '未注明' }}</span>
+          <span class="arrow">→</span>
+          <span class="loc">{{ extSheet.to }}</span>
+        </div>
+        <div class="kv"><span>出发日期</span><b>{{ extSheet.displayDate || extSheet.date }}</b></div>
+        <div class="kv"><span>出发时间</span><b>{{ extSheet.time || '未注明' }}</b></div>
+        <div class="kv"><span>发帖时间</span><b>{{ fmtPosted(extSheet.postedAt) }}</b></div>
+      </section>
+
+      <section class="panel">
+        <h3 class="panel-title">原帖内容</h3>
+        <p class="ext-raw">"{{ extSheet.raw }}"</p>
+      </section>
+
+      <section class="panel">
+        <p class="ext-disclaim">
+          该信息来自「{{ extSheet.source }}」的公开帖子。百花同行仅作信息查询，不参与该行程、不提供联系方式。<br>
+          如需联系，请打开微信搜索小程序「{{ extSheet.source }}」，用上面原文中的关键词查找该帖。
+        </p>
+      </section>
     </template>
   </main>
 
@@ -497,6 +562,14 @@
     <section class="panel">
       <h3 class="panel-title">更新日志</h3>
       <div class="cl-item">
+        <div class="cl-ver">v3.1.0 <span class="cl-date">2026-10-01</span></div>
+        <ul class="cl-list">
+          <li>新增「同行雷达」：聚合校内论坛的公开拼车帖，仅作信息展示</li>
+          <li>雷达信息来自第三方平台，非本站发布，不提供联系方式</li>
+          <li>同行大厅中本站行程优先展示，雷达信息列于其后</li>
+        </ul>
+      </div>
+      <div class="cl-item">
         <div class="cl-ver">v3.0.0 <span class="cl-date">2026-09-13</span></div>
         <ul class="cl-list">
           <li>项目转网页版重建，全新 UI 设计</li>
@@ -676,6 +749,7 @@
       <p class="legal-p legal-sub">认证信息：北化教育邮箱，用于校验在校生身份，不予公开。</p>
       <p class="legal-p legal-sub">展示信息：用户主动填写的出发地、目的地、昵称及联系方式，仅在行程有效期内对同行程成员展示。</p>
       <p class="legal-p legal-sub">行为统计：匿名统计发布、浏览、加入等行为数据，不含可识别个人身份的信息。</p>
+      <p class="legal-p legal-sub">第三方聚合信息：见第 7 条。本平台不对第三方平台的用户收集任何个人信息。</p>
       <p class="legal-p">上述数据不用于商业用途；行程结束或失效后停止展示相关联系信息。</p>
 
       <h3 class="legal-h">6. 联系方式披露与行程管理</h3>
@@ -685,7 +759,16 @@
       <p class="legal-p legal-sub">可随时退出已加入但尚未出发的行程；发起人可取消或标记完成行程。</p>
       <p class="legal-p legal-sub">行程到达出发时间后自动失效，不再接受加入。</p>
 
-      <h3 class="legal-h">7. 协议效力</h3>
+      <h3 class="legal-h">7. 第三方信息聚合（同行雷达）</h3>
+      <p class="legal-p">「同行雷达」展示的行程信息，来自其他校园平台上<b>用户公开发布</b>的帖子（目前包括「云上校友圈」「狐友」）。本平台仅通过公开可访问的接口读取这些公开内容，用于信息索引与展示，不提供任何运输、撮合或联系方式服务。</p>
+      <p class="legal-p legal-sub">信息来源：仅限第三方平台的公开帖子，不涉及私信、非公开板块或任何账号凭据。</p>
+      <p class="legal-p legal-sub">个人信息：本平台不提取、不存储、不展示第三方平台用户的身份信息与联系方式。如需联系发帖人，请自行前往来源平台查找原帖。</p>
+      <p class="legal-p legal-sub">内容权属：帖子内容的著作权归原作者所有。本平台不主张任何权利，仅作索引与展示。</p>
+      <p class="legal-p legal-sub">未经核实：第三方信息由程序自动采集，本平台不对其真实性、准确性、时效性作任何担保，亦不参与该行程、不承担任何责任。用户应自行判断并核实。</p>
+      <p class="legal-p legal-sub">使用限制：用户不得将「同行雷达」信息用于商业用途、批量采集或骚扰他人。</p>
+      <p class="legal-p legal-sub">权利人异议：如你是某条信息的作者，不希望其被本平台收录，可联系开发者，我们将在核实后及时删除。</p>
+
+      <h3 class="legal-h">8. 协议效力</h3>
       <p class="legal-p">使用本平台服务即视为已理解并接受本协议的全部内容。</p>
     </section>
   </main>

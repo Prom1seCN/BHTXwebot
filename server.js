@@ -265,6 +265,25 @@ authSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 }); // TTL：过期�
 const Trip = mongoose.model("Trip", tripSchema);
 const Auth = mongoose.model("Auth", authSchema);
 
+// ===== 同行雷达（第三方公开帖子聚合，只读）=====
+// 数据由外部爬虫写入，与 Trip 完全隔离：不参与撮合、无联系方式、无成员。
+// 用途：把校内论坛上的公开拼车帖展示给本站用户参考，仅作信息查询。
+const externalTripSchema = new mongoose.Schema({
+  source:   { type: String, required: true },   // 来源平台，如「云上校友圈」「狐友」
+  sourceId: { type: String, required: true },   // 原帖 ID（去重用）
+  from:     { type: String, default: "" },      // 起点（第三方帖子常未注明）
+  to:       { type: String, required: true },   // 终点
+  date:     { type: String, required: true },   // 出发日期 YYYY-MM-DD
+  time:     { type: String, default: "" },      // 出发时刻 HH:MM
+  raw:      { type: String, default: "" },      // 原帖正文（详情展示）
+  postedAt: { type: Date, default: Date.now }   // 原帖发布时间
+}, { timestamps: true });
+
+externalTripSchema.index({ source: 1, sourceId: 1 }, { unique: true }); // 去重
+externalTripSchema.index({ date: 1, time: 1 });                          // 按出发时间查询与清理
+
+const ExternalTrip = mongoose.model("ExternalTrip", externalTripSchema);
+
 // ===== 验证码防护计数（按邮箱，不按 IP）=====
 // 为什么不用 IP：换 IP 对攻击者几乎零成本（本机实测——换一个 X-Forwarded-For 值就拿到一个
 // 全新的限流桶），而校园网/CGNAT 出口又让一栋楼共享同一个 IP，按 IP 既挡不住人又误伤同学。
@@ -1153,6 +1172,34 @@ app.get('/api/trips', async (req, res) => {
   } catch (err) {
     console.error('获取列表失败:', err);
     res.status(500).json({ message: '服务器内部错误' });
+  }
+});
+
+// ===== 同行雷达：第三方公开拼车帖（只读，无需登录）=====
+// 只返回「尚未出发」的帖子：日期晚于今天，或日期为今天且时刻未到（未写时刻的当天视为有效）。
+// 不下发 sourceId 与任何联系方式——详情只给原帖正文，联系需用户自行前往来源平台。
+app.get("/api/external-trips", async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 100, 200);
+    const now = new Date(Date.now() + 8 * 3600 * 1000);              // UTC+8 墙钟
+    const today = now.toISOString().slice(0, 10);
+    const hhmm = now.toISOString().slice(11, 16);
+
+    const list = await ExternalTrip.find({
+      $or: [
+        { date: { $gt: today } },                                    // 今天之后
+        { date: today, time: "" },                                   // 今天、未写时刻
+        { date: today, time: { $gte: hhmm } }                        // 今天、时刻未到
+      ]
+    })
+      .select("source from to date time raw postedAt")
+      .sort({ date: 1, time: 1 })
+      .limit(limit);
+
+    res.json(list);
+  } catch (err) {
+    console.error("同行雷达查询失败:", err);
+    res.status(500).json({ message: "服务器内部错误" });
   }
 });
 

@@ -32,11 +32,12 @@ const CONFIG = {
   publicBase: `http://127.0.0.1:${process.env.PORT || 3100}/api`
 };
 
-if (!CONFIG.appId || !CONFIG.clientSecret) {
+// 凭据检查：仅作为主程序运行时强制；被 require（工具脚本复用规则引擎）时跳过
+if (require.main === module && (!CONFIG.appId || !CONFIG.clientSecret)) {
   console.error("[qqbot] 缺少环境变量 QQ_BOT_APP_ID / QQ_BOT_APP_SECRET");
   process.exit(1);
 }
-if (!process.env.ADMIN_KEY) console.error("[qqbot] 警告：缺少 ADMIN_KEY，内部接口调用将失败");
+if (require.main === module && !process.env.ADMIN_KEY) console.error("[qqbot] 警告：缺少 ADMIN_KEY，内部接口调用将失败");
 
 function log(msg) {
   console.log(`[qqbot ${new Date().toISOString()}] ${msg}`);
@@ -438,6 +439,7 @@ const HELP_TEXT = [
   "发布  一句话说明时间与路线",
   "　　　如：明天下午四点 北化北区到北京南站",
   "查询  查 明天 / 查 明天 北化北区",
+  "　　　同时列出校内论坛的公开拼车帖（同行雷达）",
   "加入  加入 行程号 或 序号",
   "退出  退出 / 退出 行程号 / 退出 序号",
   "我的  进行中的行程；私聊附同行人联系方式",
@@ -616,33 +618,68 @@ async function handleCommand(raw, ctxKey, reply, uid, isDM) {
   if (/^(查|查询|找)/.test(t)) {
     const q = parseQuery(t);
     // 大厅对游客开放：查询不要求绑定
-    let list;
+    // 同时取本站行程与同行雷达（第三方公开帖，只读、无联系方式）
+    let list, ext = [];
     try {
-      const r = await axios.get(`${CONFIG.publicBase}/trips?limit=100`, { timeout: 15000 });
+      const [r, er] = await Promise.all([
+        axios.get(`${CONFIG.publicBase}/trips?limit=100`, { timeout: 15000 }),
+        axios.get(`${CONFIG.publicBase}/external-trips?limit=50`, { timeout: 15000 })
+          .catch(() => ({ data: [] }))   // 雷达不可用不影响本站查询
+      ]);
       list = Array.isArray(r.data) ? r.data : [];
+      ext = Array.isArray(er.data) ? er.data : [];
     } catch (e) {
       return reply("查询失败，请稍后再试");
     }
-    if (q.date) list = list.filter((x) => x.date === q.date);
-    if (q.fromList && q.fromList.length) list = list.filter((x) => q.fromList.includes(x.from));
-    if (q.toList && q.toList.length) list = list.filter((x) => q.toList.includes(x.to));
-    if (q.anyList && q.anyList.length) list = list.filter((x) => q.anyList.includes(x.from) || q.anyList.includes(x.to));
-    if (q.period) list = list.filter((x) => {
-      const p = String(x.time || "").split(":");
-      const mins = (parseInt(p[0], 10) || 0) * 60 + (parseInt(p[1], 10) || 0);
-      return mins >= q.period[0] && mins < q.period[1];
-    });
+
+    // 同一套筛选条件套用到两个数据源
+    const hit = (x) => {
+      if (q.date && x.date !== q.date) return false;
+      if (q.fromList && q.fromList.length && !q.fromList.includes(x.from)) return false;
+      if (q.toList && q.toList.length && !q.toList.includes(x.to)) return false;
+      if (q.anyList && q.anyList.length && !(q.anyList.includes(x.from) || q.anyList.includes(x.to))) return false;
+      if (q.period) {
+        const p = String(x.time || "").split(":");
+        const mins = (parseInt(p[0], 10) || 0) * 60 + (parseInt(p[1], 10) || 0);
+        if (!(mins >= q.period[0] && mins < q.period[1])) return false;
+      }
+      return true;
+    };
+    list = list.filter(hit);
+    ext = ext.filter(hit);
     list.sort((a, b) => String(a.date + a.time).localeCompare(String(b.date + b.time)));
-    if (!list.length) return reply("该条件下暂无行程");
-    list = list.slice(0, 10);
-    s.results = list;
+    ext.sort((a, b) => String(a.date + a.time).localeCompare(String(b.date + b.time)));
+
+    if (!list.length && !ext.length) return reply("该条件下暂无行程");
+
     const scope = (q.date ? fmtCN(q.date) : "近期") + (q.periodWord || "");
     const route = [].concat(q.fromList || [], q.toList || [], q.anyList || []).filter(Boolean).join("→");
-    return reply(
-      `【${scope}${route ? " · " + route : ""}】共 ${list.length} 班\n` +
-      list.map((x, i) => `${i + 1}. ${x.tripNo ? "#" + x.tripNo : ""} ${fmtCN(x.date)} ${x.time} ${x.from}→${x.to}，${(x.headcount || 0) + 1}/${x.capacity || 3} 人`).join("\n") +
-      "\n回复「加入 序号」或「加入 行程号」上车"
-    );
+    const head = `【${scope}${route ? " · " + route : ""}】`;
+    const parts = [];
+
+    if (list.length) {
+      list = list.slice(0, 10);
+      s.results = list;
+      parts.push(
+        `${head}共 ${list.length} 班\n` +
+        list.map((x, i) => `${i + 1}. ${x.tripNo ? "#" + x.tripNo : ""} ${fmtCN(x.date)} ${x.time} ${x.from}→${x.to}，${(x.headcount || 0) + 1}/${x.capacity || 3} 人`).join("\n") +
+        "\n回复「加入 序号」或「加入 行程号」上车"
+      );
+    } else {
+      s.results = [];
+      parts.push(`${head}暂无本站行程`);
+    }
+
+    // 雷达单独成段：不能加入、无联系方式，必须与本站行程区分，避免误以为能上车
+    if (ext.length) {
+      parts.push(
+        `【同行雷达 · 校内论坛公开帖】${ext.length} 条\n` +
+        ext.slice(0, 8).map((x) => `· ${fmtCN(x.date)} ${x.time || "时间未注明"} ${x.from ? x.from + "→" : ""}${x.to}（${x.source}）`).join("\n") +
+        "\n第三方公开帖子，仅供参考；完整内容见 bhtx.prom1se.cn"
+      );
+    }
+
+    return reply(parts.join("\n\n"));
   }
 
   if (/^(我的|我的行程)$/.test(t)) {
@@ -1216,15 +1253,24 @@ function connect(useResume) {
   });
 }
 
-// 进程启动
-refreshAccessToken()
-  .then(() => { connect(false); startPollers(); syncQuickEntries(); log("启动完成（指令/通知/提醒/播报 就绪）"); })
-  .catch((e) => {
-    log(`启动失败: ${describeApiError(e)}`);
-    setTimeout(() => {
-      refreshAccessToken().then(() => { connect(false); startPollers(); }).catch((e2) => {
-        log(`二次尝试仍失败: ${describeApiError(e2)}，退出等待 pm2 重启`);
-        process.exit(1);
-      });
-    }, 10000);
-  });
+// 进程启动（仅当作为主程序运行时执行；被 require 时只导出解析函数，供工具脚本复用）
+if (require.main === module) {
+  refreshAccessToken()
+    .then(() => { connect(false); startPollers(); syncQuickEntries(); log("启动完成（指令/通知/提醒/播报 就绪）"); })
+    .catch((e) => {
+      log(`启动失败: ${describeApiError(e)}`);
+      setTimeout(() => {
+        refreshAccessToken().then(() => { connect(false); startPollers(); }).catch((e2) => {
+          log(`二次尝试仍失败: ${describeApiError(e2)}，退出等待 pm2 重启`);
+          process.exit(1);
+        });
+      }, 10000);
+    });
+}
+
+// 导出规则引擎（供 tools/ 下的脚本复用；不影响 bot 自身运行）
+module.exports = {
+  parsePublish, parseQuery, parseRoute, parseCustomRoute,
+  matchDate, matchTime, matchPeriod, scanLocations,
+  loadLocations, fmtCN, cstDate, cnNum
+};

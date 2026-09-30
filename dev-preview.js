@@ -60,7 +60,66 @@ function makeTrips() {
   ];
 }
 
+// ---- 同行雷达（第三方来源）示例数据 ----
+// 字段与后端 GET /api/external-trips 返回一致：
+//   from/to/date/time 为结构化提取结果；raw 为帖子原文；source 为来源平台
+function makeExternal() {
+  const now = Date.now();
+  return [
+    {
+      _id: 'ext1', source: '云上校友圈', from: '西门', to: '北京丰台站',
+      date: dayStr(0), time: '17:30',
+      raw: '明天（10.1）晚上17:30从西门出发去北京丰台站，有想拼车一起去的同学可以私我',
+      postedAt: new Date(now - 20 * 60000).toISOString()
+    },
+    {
+      _id: 'ext2', source: '狐友', from: '', to: '大兴机场',
+      date: dayStr(0), time: '16:00',
+      raw: '明天下午四点左右有没有一起去大兴机场的',
+      postedAt: new Date(now - 55 * 60000).toISOString()
+    },
+    {
+      _id: 'ext3', source: '云上校友圈', from: '西门', to: '西山口地铁站',
+      date: dayStr(1), time: '08:00',
+      raw: '蹲明天早上8点西门到西山口地铁站拼车',
+      postedAt: new Date(now - 3 * 3600000).toISOString()
+    },
+    {
+      _id: 'ext4', source: '狐友', from: '昌平校区', to: '首都机场',
+      date: dayStr(1), time: '12:00',
+      raw: '9.30中午十二点有人一起拼车去首都机场吗',
+      postedAt: new Date(now - 5 * 3600000).toISOString()
+    }
+  ];
+}
+
 const TRIPS = makeTrips();
+
+// 同行雷达：优先读真实筛选结果（external-trips.json，由 tools/filter-external.js 产出）；
+// 文件不存在或为空时回退到示例数据，保证本地预览永远有内容。
+// 同时过滤掉出发时间已过的（与线上 server.js 行为一致）。
+function isUpcoming(t) {
+  const now = new Date(Date.now() + 8 * 3600 * 1000);   // UTC+8 墙钟
+  const today = now.toISOString().slice(0, 10);
+  const hhmm = now.toISOString().slice(11, 16);
+  if (t.date > today) return true;
+  if (t.date < today) return false;
+  if (!t.time) return true;        // 只写了日期、没写时刻 → 当天仍视为有效
+  return t.time >= hhmm;
+}
+
+function loadExternal() {
+  try {
+    const d = JSON.parse(fs.readFileSync(path.join(__dirname, 'external-trips.json'), 'utf8'));
+    if (Array.isArray(d) && d.length) {
+      const live = d.filter(isUpcoming);
+      console.log(`同行雷达：载入 ${d.length} 条，其中未出发 ${live.length} 条`);
+      return live.map((x, i) => Object.assign({}, x, { _id: x.sourceId || ('ext' + i) }));
+    }
+  } catch (e) { /* 无文件则回退 */ }
+  return makeExternal();
+}
+const EXTERNAL = loadExternal();
 const MEMBERS = {
   demo1: [
     { displayName: '北化校友Kd2m', role: 'organizer', isOrganizer: true, contact: 'wx_demo_01' },
@@ -103,6 +162,7 @@ const server = http.createServer((req, res) => {
     const body = req.method === 'GET' ? {} : await readBody();
 
     if (urlPath === '/api/trips' && req.method === 'GET') return json(res, 200, TRIPS);
+    if (urlPath === '/api/external-trips' && req.method === 'GET') return json(res, 200, EXTERNAL);
     if (urlPath === '/api/trips/my') return json(res, 200, []);
     if (urlPath === '/api/trips/joined') return json(res, 200, [TRIPS[0]]);
 

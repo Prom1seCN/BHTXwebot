@@ -17,7 +17,11 @@ try:
 except Exception:
     pass
 
-HOST, USER = "REDACTED_HOST", "ubuntu"
+HOST = os.environ.get("BHTX_HOST", "")
+USER = os.environ.get("BHTX_USER", "ubuntu")
+if not HOST:
+    print("请先设置 BHTX_HOST 环境变量（服务器地址），例如：set BHTX_HOST=your.server.ip")
+    sys.exit(1)
 STAGES = {"recon", "upload", "start", "nginx-check", "nginx-cut", "verify", "stop-old"}
 _args = sys.argv[1:]
 if _args and _args[0] not in STAGES and len(_args) > 1 and _args[1] in STAGES:
