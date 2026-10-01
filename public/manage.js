@@ -35,6 +35,7 @@ async function load() {
     loadContributors();
     loadSponsorStatus();
     loadQQ();
+    loadDeleted();
   } catch (e) { /* 静默重试 */ }
 }
 
@@ -367,4 +368,94 @@ load();
 function adminLogout() {
   localStorage.removeItem(LS_KEY);
   location.reload();
+}
+
+
+/* ===== 同行雷达：删除记录 ===== */
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function fmtTime(v) {
+  if (!v) return '未知';
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return '未知';
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+let deletedCache = [];
+let deletedExpanded = false;
+
+async function loadDeleted() {
+  const box = document.getElementById('delList');
+  try {
+    const res = await fetch('/api/manage/deleted-external', { headers: { 'x-admin-key': getKey() } });
+    if (res.status === 403) { showKeyMask('密钥不正确'); return; }
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    deletedCache = await res.json();
+    renderDeletedList();
+  } catch (e) {
+    box.innerHTML = '<div class="state-sm">加载失败：' + esc(e.message) + '</div>';
+  }
+}
+
+// 默认只展示最近 5 条，避免记录越积越多把页面撑长
+function renderDeletedList() {
+  const box = document.getElementById('delList');
+  const all = deletedCache || [];
+  if (!all.length) { box.innerHTML = '<div class="state-sm">暂无删除记录</div>'; return; }
+
+  const show = deletedExpanded ? all : all.slice(0, 5);
+  let html = show.map(renderDeleted).join('');
+  if (all.length > 5) {
+    html += `<button class="contrib-btn del-more" onclick="toggleDeleted()">${
+      deletedExpanded ? '收起' : '展开全部（共 ' + all.length + ' 条）'}</button>`;
+  }
+  box.innerHTML = html;
+}
+
+function toggleDeleted() {
+  deletedExpanded = !deletedExpanded;
+  renderDeletedList();
+}
+
+function renderDeleted(r) {
+  const route = (r.from || '未注明') + ' → ' + (r.to || '未注明');
+  const when = [r.date, r.time].filter(Boolean).join(' ');
+  const detail = r.reasonDetail ? '（' + esc(r.reasonDetail) + '）' : '';
+  return `<div class="del-rec" id="del-${r._id}">
+    <div class="del-rec-head">
+      <span class="del-rec-src">${esc(r.source)}</span>
+      <span class="del-rec-time">删除于 ${fmtTime(r.deletedAt)}</span>
+    </div>
+    <div class="del-rec-route">${esc(route)}${when ? ' · ' + esc(when) : ''}</div>
+    <div class="del-rec-raw">${esc(r.raw || '（无正文）')}</div>
+    <div class="del-rec-meta">
+      <span>原因：${esc(r.reason)}${detail}</span>
+      <span>操作人：${esc(r.operator)}</span>
+    </div>
+    <button class="contrib-btn" onclick="restoreDeleted('${r._id}', this)">恢复</button>
+  </div>`;
+}
+
+async function restoreDeleted(id, btn) {
+  if (!confirm('确定恢复这条帖子？恢复后会重新出现在大厅。')) return;
+  btn.disabled = true;
+  btn.textContent = '恢复中…';
+  try {
+    const res = await fetch('/api/manage/deleted-external/' + id + '/restore', {
+      method: 'POST',
+      headers: { 'x-admin-key': getKey() }
+    });
+    if (res.status === 403) { showKeyMask('密钥不正确'); return; }
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    deletedCache = (deletedCache || []).filter((x) => x._id !== id);
+    renderDeletedList();
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = '恢复';
+    alert('恢复失败：' + e.message);
+  }
 }
