@@ -51,6 +51,18 @@ const app = Vue.createApp({
       trips: [],
       externalTrips: [],      // 同行雷达：第三方公开帖子聚合
       extSheet: null,         // 同行雷达：当前查看原文的那条
+      // 同行雷达：删除（仅限第三方帖子；需认证 + 勾选本人 + 填原因，24 小时限 1 条）
+      extDeleteOpen: false,
+      extDeleteReason: '',
+      extDeleteDetail: '',
+      extDeleteConfirm: false,
+      extDeleteBusy: false,
+      extDeleteReasons: [
+        '我是发帖人，不想被转载',
+        '信息有误',
+        '已经拼到人了',
+        '其他'
+      ],
       loading: false,
       dateFilter: 'all',      // all | today | tomorrow | after | 具体日期 YYYY-MM-DD
       fromFilter: '',
@@ -279,11 +291,25 @@ const app = Vue.createApp({
       const headers = { 'Content-Type': 'application/json' };
       if (this.token) headers.Authorization = 'Bearer ' + this.token;
 
-      const res = await fetch('/api' + path, {
-        method: opts.method || 'GET',
-        headers,
-        body: opts.body ? JSON.stringify(opts.body) : undefined
-      });
+      // 超时保护：避免网络异常时请求一直挂着、界面永远停在「提交中」
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 30000);
+      let res;
+      try {
+        res = await fetch('/api' + path, {
+          method: opts.method || 'GET',
+          headers,
+          body: opts.body ? JSON.stringify(opts.body) : undefined,
+          signal: ctrl.signal
+        });
+      } catch (err) {
+        clearTimeout(timer);
+        const e = new Error(err && err.name === 'AbortError' ? '请求超时，请检查网络后重试' : '网络异常，请稍后重试');
+        e.status = 0;
+        throw e;
+      }
+      clearTimeout(timer);
+
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         // 401（无 token / token 失效）：先清本地登录态，再给可读文案——不把服务端原始提示「缺少或无效的 Authorization 头」甩到界面上
@@ -294,7 +320,14 @@ const app = Vue.createApp({
           e.status = 401;
           throw e;
         }
-        const e = new Error((data && data.message) || '请求失败');
+        // 优先用服务端文案；取不到时按状态码给可读兜底，不甩「请求失败」这种无信息量的提示
+        const raw = data && data.message;
+        const msg = (typeof raw === 'string' && raw)
+          ? raw
+          : res.status === 429 ? '操作过于频繁，请稍后再试'
+          : res.status >= 500 ? '服务器繁忙，请稍后重试'
+          : '请求失败';
+        const e = new Error(msg);
         e.status = res.status;
         throw e;
       }
@@ -397,6 +430,47 @@ const app = Vue.createApp({
       this.extSheet = t;
       this.view = 'extdetail';
       window.scrollTo(0, 0);
+    },
+
+    // 同行雷达：打开删除确认（重置上一次的输入）
+    openExtDelete() {
+      this.extDeleteReason = '';
+      this.extDeleteDetail = '';
+      this.extDeleteConfirm = false;
+      this.extDeleteOpen = true;
+    },
+    closeExtDelete() {
+      if (this.extDeleteBusy) return;
+      this.extDeleteOpen = false;
+    },
+
+    // 同行雷达：提交删除
+    async submitExtDelete() {
+      if (!this.extSheet || this.extDeleteBusy) return;
+      if (!this.extDeleteConfirm) { this.showToast('请勾选「这是我本人发布的帖子」'); return; }
+      if (!this.extDeleteReason) { this.showToast('请选择删除原因'); return; }
+
+      this.extDeleteBusy = true;
+      try {
+        await this.api('/external-trips/' + this.extSheet._id + '/delete', {
+          method: 'POST',
+          body: {
+            reason: this.extDeleteReason,
+            reasonDetail: this.extDeleteDetail,
+            confirm: true
+          }
+        });
+        this.extDeleteOpen = false;
+        this.extSheet = null;
+        this.showToast('已删除');
+        this.go('hall');
+        await this.reloadHall();
+      } catch (e) {
+        // 失败时保留弹窗，让用户看清原因（限流 / 校验 / 网络）
+        this.showToast((e && e.message) || '删除失败，请稍后重试');
+      } finally {
+        this.extDeleteBusy = false;
+      }
     },
 
     // 同行雷达：发帖时间显示（如「2 小时前」/「10-01 14:05」）

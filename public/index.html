@@ -252,6 +252,11 @@
           如需联系，请打开微信搜索小程序「{{ extSheet.source }}」，用上面原文中的关键词查找该帖。
         </p>
       </section>
+
+      <!-- 删除入口：灰色小字，不主动引导 -->
+      <div class="ext-del-wrap">
+        <button class="ext-del-link" @click="openExtDelete">申请删除</button>
+      </div>
     </template>
   </main>
 
@@ -564,9 +569,9 @@
       <div class="cl-item">
         <div class="cl-ver">v3.1.0 <span class="cl-date">2026-10-01</span></div>
         <ul class="cl-list">
-          <li>新增「同行雷达」：聚合校内论坛的公开拼车帖，仅作信息展示</li>
-          <li>雷达信息来自第三方平台，非本站发布，不提供联系方式</li>
-          <li>同行大厅中本站行程优先展示，雷达信息列于其后</li>
+          <li>新增「同行雷达」：把校内论坛的公开拼车帖聚合进大厅，和本站行程放在一起看</li>
+          <li>信息来自第三方平台公开发布，非本站发布，不提供联系方式；本站行程在大厅优先展示</li>
+          <li>发帖人可凭邮箱认证申请删除自己的帖子，删除后不再收录</li>
         </ul>
       </div>
       <div class="cl-item">
@@ -822,6 +827,47 @@
       <span class="tl">菜单</span>
     </button>
   </nav>
+
+  <!-- ===== 同行雷达：申请删除 ===== -->
+  <div v-if="extDeleteOpen" class="mask" @click.self="closeExtDelete">
+    <div class="sheet del-sheet">
+      <h3 class="sheet-title">申请删除</h3>
+      <p class="sheet-hint">
+        仅针对「同行雷达」中来自第三方平台的帖子。每个账号 24 小时内可删除一条。
+      </p>
+
+      <div class="del-section">
+        <div class="del-label">删除原因</div>
+        <div class="del-opts">
+          <button v-for="r in extDeleteReasons" :key="r"
+                  class="del-opt" :class="{on: r === extDeleteReason}"
+                  @click="extDeleteReason = r">
+            <span class="del-radio"></span>
+            <span class="del-opt-text">{{ r }}</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="del-section">
+        <div class="del-label">补充说明<span class="del-opt-tag">选填</span></div>
+        <textarea class="del-textarea" rows="3" maxlength="500" v-model.trim="extDeleteDetail"
+                  placeholder="可以补充具体情况，方便我们记录"></textarea>
+      </div>
+
+      <label class="del-confirm" :class="{on: extDeleteConfirm}">
+        <input type="checkbox" v-model="extDeleteConfirm">
+        <span class="del-confirm-box"></span>
+        <span class="del-confirm-text">这是我本人发布的帖子，我想删除</span>
+      </label>
+
+      <div class="del-actions">
+        <button class="del-cancel" @click="closeExtDelete">取消</button>
+        <button class="del-submit" :disabled="extDeleteBusy" @click="submitExtDelete">
+          {{ extDeleteBusy ? '提交中…' : '确认删除' }}
+        </button>
+      </div>
+    </div>
+  </div>
 
   <!-- ===== 选择弹层（日期 / 出发地）===== -->
   <div v-if="sheetPicker" class="mask" @click.self="closePicker">

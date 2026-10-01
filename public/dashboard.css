@@ -128,3 +128,34 @@ body { padding-bottom: 32px; }
 
 a.chip { text-decoration: none; color: var(--muted); }
 a.chip.on { color: var(--brand-700); }
+
+
+/* ==========================================================================
+   同行雷达：删除记录管理（/manage.html）
+   ========================================================================== */
+.del-admin { display: flex; flex-direction: column; gap: 10px; }
+.del-rec {
+  padding: 12px 13px;
+  border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface);
+}
+.del-rec-head {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 8px; margin-bottom: 7px;
+}
+.del-rec-src {
+  padding: 2px 8px; border-radius: 999px;
+  background: var(--brand-050); color: var(--brand-700);
+  font-size: 12.5px; font-weight: 600;
+}
+.del-rec-time { font-size: 12px; color: var(--faint); }
+.del-rec-route { margin-bottom: 6px; font-size: 14px; font-weight: 600; color: var(--ink); }
+.del-rec-raw {
+  margin-bottom: 8px; font-size: 13px; line-height: 1.6;
+  color: var(--muted); word-break: break-word;
+}
+.del-rec-meta {
+  display: flex; flex-wrap: wrap; gap: 4px 14px;
+  margin-bottom: 10px; font-size: 12px; color: var(--faint);
+}
+
+.del-more { width: 100%; margin-top: 2px; }

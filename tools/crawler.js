@@ -21,13 +21,15 @@ const { matchTime, scanLocations } = require("../qqbot");
 const ROOT = path.join(__dirname, "..");
 const DATA_DIR = process.env.CRAWLER_DATA || path.join(ROOT, "crawler-data");
 const RAW_DIR = path.join(DATA_DIR, "raw");
+const HOT_DIR = path.join(DATA_DIR, "hot");
+const HOT_IMG_DIR = path.join(DATA_DIR, "hot-img");
 const CURSOR_FILE = path.join(DATA_DIR, "cursor.json");
 const TRIPS_FILE = process.env.CRAWLER_OUT || path.join(ROOT, "external-trips.json");
 const LOG_FILE = path.join(DATA_DIR, "crawler.log");
 
 const FULL = process.argv.includes("--full");
 const DELAY_MS = 1800;          // 请求间隔，控频防封
-const MAX_PAGES = 20;           // 单次最多翻页数（增量时通常 1 页就停）
+const MAX_PAGES = 100;          // 单次最多翻页数（增量时通常 1 页就停；全量时用来拉满窗口）
 
 // ---------- 凭证（VPS 上用环境变量注入；token 含二进制签名，故也支持从文件读） ----------
 const SD_COOKIE = process.env.SHUDONG_COOKIE || "";
@@ -50,6 +52,8 @@ const HY_IDS = {
 };
 
 fs.mkdirSync(RAW_DIR, { recursive: true });
+fs.mkdirSync(HOT_DIR, { recursive: true });
+fs.mkdirSync(HOT_IMG_DIR, { recursive: true });
 
 // ---------- 工具 ----------
 function log(msg) {
@@ -107,13 +111,93 @@ async function fetchShudong(cursor) {
     for (const x of list) {
       const id = String(x.id);
       if (!FULL && cursor && id === cursor) { hitOld = true; break; }   // 追上上次的位置
-      out.push({ source: "云上校友圈", sourceId: id, text: x.detail || x.title || "", postedAt: x.create_time });
+      out.push({ source: "云上校友圈", sourceId: id, text: x.detail || x.title || "", postedAt: x.create_time, full: x });
     }
     if (hitOld) break;
     page++;
     await sleep(DELAY_MS);
   }
   return out;
+}
+
+// ---------- 热榜（全字段留档，不去重） ----------
+const HOT_BOARDS = ["datehot", "dayhot", "weekhot", "monthhot"];
+async function fetchHot() {
+  const out = {};
+  for (const ep of HOT_BOARDS) {
+    const payload = JSON.stringify({ community_id: "5" });
+    try {
+      const res = await req({
+        hostname: "ys.qimiaoyuanfen.com", path: `/article/article/${ep}`, method: "POST",
+        headers: {
+          "Cookie": SD_COOKIE,
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(payload),
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36 MicroMessenger/7.0.20.1781(0x6700143B) NetType/WIFI MiniProgramEnv/Windows WindowsWechat/WMPF",
+          "Referer": "https://servicewechat.com/wxe23b94e06f71e89a/153/page-frame.html"
+        }
+      }, payload);
+      const d = JSON.parse(res.body);
+      if (d.code !== "0000") { log(`热榜 ${ep} 失败 code=${d.code}`); await sleep(DELAY_MS); continue; }
+      const list = Array.isArray(d.data) ? d.data : ((d.data && d.data.list) || []);
+      out[ep] = list;
+      log(`热榜 ${ep} ${list.length} 条`);
+    } catch (e) { log(`热榜 ${ep} 失败: ${e.message}`); }
+    await sleep(DELAY_MS);
+  }
+  return out;
+}
+
+// ---------- 热榜图片下载（原图落地，按 URL 文件名去重） ----------
+const IMG_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36 MicroMessenger/7.0.20.1781(0x6700143B) NetType/WIFI MiniProgramEnv/Windows WindowsWechat/WMPF";
+
+function downloadFile(url, dest) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const r = https.get({
+      hostname: u.hostname, path: u.pathname + u.search, method: "GET",
+      headers: { "User-Agent": IMG_UA, "Referer": "https://servicewechat.com/wxe23b94e06f71e89a/153/page-frame.html" }
+    }, (res) => {
+      if (res.statusCode !== 200) { res.resume(); return reject(new Error("HTTP " + res.statusCode)); }
+      const ws = fs.createWriteStream(dest);
+      res.pipe(ws);
+      ws.on("finish", () => ws.close(() => resolve()));
+      ws.on("error", reject);
+    });
+    r.on("error", reject);
+    r.setTimeout(30000, () => r.destroy(new Error("timeout")));
+  });
+}
+
+function collectHotImages(hot) {
+  const urls = new Set();
+  for (const list of Object.values(hot)) {
+    for (const p of (list || [])) {
+      const si = Array.isArray(p.show_images) ? p.show_images : [];
+      for (const it of si) { const u = it && it.ori; if (u && /^https?:/.test(u)) urls.add(u); }
+      const im = p.images;
+      if (typeof im === "string" && im) {
+        for (const part of im.split(",")) { const t = part.trim(); if (/^https?:/.test(t)) urls.add(t); }
+      }
+    }
+  }
+  return urls;
+}
+
+async function downloadHotImages(hot) {
+  const urls = collectHotImages(hot);
+  let ok = 0, skip = 0, fail = 0;
+  for (const u of urls) {
+    let name = "";
+    try { name = path.basename(new URL(u).pathname); } catch (e) {}
+    if (!name) { fail++; continue; }
+    const dest = path.join(HOT_IMG_DIR, name);
+    try { if (fs.existsSync(dest) && fs.statSync(dest).size > 0) { skip++; continue; } } catch (e) {}
+    try { await downloadFile(u, dest); ok++; }
+    catch (e) { fail++; log(`热榜图片失败 ${name}: ${e.message}`); try { fs.unlinkSync(dest); } catch (e2) {} }
+    await sleep(250);
+  }
+  log(`热榜图片：新增 ${ok}，已存在 ${skip}，失败 ${fail}（共 ${urls.size} 个）`);
 }
 
 // ---------- 狐友 ----------
@@ -169,7 +253,7 @@ async function fetchHuyou(cursor) {
       const sc = s.score;
       if (s.isTopFeed === 1) continue;                  // 置顶帖时间戳是旧的，跳过
       if (since && typeof sc === "number" && sc <= since) { hitOld = true; break; }  // 追上上次的位置
-      out.push({ source: "狐友", sourceId: String(s.feedId), text: s.content || "", postedAt: sc });
+      out.push({ source: "狐友", sourceId: String(s.feedId), text: s.content || "", postedAt: sc, full: f });
     }
     if (hitOld) break;
     const nxt = (data.pageInfo || {}).score;
@@ -184,6 +268,8 @@ async function fetchHuyou(cursor) {
 const TRIP_KW = /拼车|拼个车|一起拼|顺风车|顺风|搭车|捎我|求带|带我一个|同行|一起去|一起走/;
 const AD_KW = /代课|代🉑|代写|接单|价格可议|\d+\s*r\s*一节|元一节|兼职|招聘|出售|转让|出租|收购|求购|家教|跑腿代取/;
 const NOTRIP_KW = /捞一下|捡到|丢失|丢了|寻物|失物|差点被|看到两个|私一下我/;
+// 库外目的地黑名单：命中即视为非地名（「一起去吃饭」→「吃饭」），丢弃
+const DEST_BAD = /点|分钟|小时|上午|下午|中午|晚上|凌晨|一起|同学|饭|课|玩|老家|上课|考试|自习|图书馆|食堂|超市|澡堂|宿舍|网吧|球|电影|游戏|锻炼|跑步|逛街|爬山|健身|游泳|复习|睡觉|洗澡/;
 const CN_MAP = { 零: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
 function cn2num(s) {
   if (/^\d+$/.test(s)) return parseInt(s, 10);
@@ -228,22 +314,84 @@ function isoTs(postedAt) {
   return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
 }
 
-function filterOne(p) {
+// ---------- AI 精判（Jev 决策模型，免费预览版） ----------
+// 规则层只负责「宁可错收」，真伪在这里判定：noul = 0~1 概率，越高越像真拼车帖
+const JEV_URL = process.env.JEV_URL || "https://jev.prom1se.cn/api/systemone";
+const JEV_KEY = process.env.JEV_KEY || "";
+const JEV_HOST = process.env.JEV_HOST || "";
+const JEV_THRESHOLD = 0.5;
+const JEV_INSTR = '这条帖子是不是在找人一起拼车/搭车出行？必须同时满足三条才算：1) 有明确的出发地或目的地（具体地点，不是"出去玩"这种泛指）；2) 有出行日期或时间；3) 是找人同行或分摊费用。找搭子玩、约饭、组队参赛、二手交易、寻物招领都不算。';
+
+async function jevJudge(text, attempt = 0) {
+  if (!JEV_KEY) return null;                       // 未配置 → 交给调用方回退到严格规则
+  const headers = { "Content-Type": "application/json", "Authorization": "Bearer " + JEV_KEY };
+  if (JEV_HOST) headers["X-Jev-Host"] = JEV_HOST;
+  try {
+    const r = await fetch(JEV_URL, {
+      method: "POST", headers,
+      body: JSON.stringify({
+        model: "decision-model-preview",
+        state: { content: text },
+        questions: { 拼车帖: { type: "noul", instructions: JEV_INSTR } }
+      })
+    });
+    const txt = await r.text();
+    let d = null;
+    try { d = JSON.parse(txt); } catch (e) {
+      // 非 JSON：多为 nginx 限流(8r/s)或上游错误返回的 HTML 页 → 退避重试
+      if (attempt < 3) { await sleep(700 * (attempt + 1)); return jevJudge(text, attempt + 1); }
+      log(`Jev 非 JSON 响应，放弃: ${txt.slice(0, 60).replace(/\s+/g, " ")}`);
+      return null;
+    }
+    const noul = d && d.answers && d.answers["拼车帖"] && d.answers["拼车帖"].noul;
+    return typeof noul === "number" ? noul : null;
+  } catch (e) {
+    if (attempt < 2) { await sleep(700 * (attempt + 1)); return jevJudge(text, attempt + 1); }
+    log(`Jev 判定失败: ${e.message}`);
+    return null;
+  }
+}
+
+// 库外地名兜底：从「去/往/回/到/→」后取目的地，剥离尾部语气词，再经别名表归一
+function parseDestFallback(text) {
+  const m = text.match(/(?:去|往|回|到|→)\s*([一-龥A-Za-z]{2,10})/);
+  if (!m) return null;
+  // 剥掉尾部语气词与称呼（「…的友友」「…的宝子」「…有嘛」）
+  const to = m[1].replace(/(的[一-龥]{0,3}|友友|同学|宝子|宝|吗|嘛|呢|啊|吧|滴|呀|啦|了|有)+$/g, "");
+  if (to.length < 2) return null;
+  if (DEST_BAD.test(to)) return null;
+  const norm = scanLocations(" " + to + " ");
+  return norm.length ? norm[0].loc : to;
+}
+
+async function filterOne(p) {
   const text = String(p.text || "").replace(/\s+/g, " ").trim();
   if (!text) return null;
   if (!TRIP_KW.test(text)) return null;
   if (AD_KW.test(text) || NOTRIP_KW.test(text)) return null;
+
+  // 字段抽取（代码负责）：起终点、时间、日期
   const locs = [];
   for (const f of scanLocations(" " + text + " ")) if (!locs.includes(f.loc)) locs.push(f.loc);
-  if (!locs.length) return null;
+  let from = locs.length >= 2 ? locs[0] : "";
+  let to = locs[locs.length - 1] || "";
+  if (!locs.length) to = parseDestFallback(text) || "";
+  if (!to) return null;
+
   const tm = matchTime(text);
   let date = parseDateFrom(text, p.postedAt);
   if (!date && tm) date = new Date(baseDay(p.postedAt).getTime()).toISOString().slice(0, 10);
   if (!date && !tm) return null;
+
+  // 真伪判定（AI 负责）：Jev 不可用时回退到「地点库命中」严格规则
+  const noul = await jevJudge(text);
+  await sleep(150);                                 // 控速，避开 jev.prom1se.cn 的 8r/s 限流
+  const pass = noul === null ? locs.length > 0 : noul >= JEV_THRESHOLD;
+  if (!pass) return null;
+
   return {
     source: p.source, sourceId: p.sourceId,
-    from: locs.length >= 2 ? locs[0] : "",
-    to: locs[locs.length - 1],
+    from, to,
     date, time: (tm && tm.time) || "",
     raw: text, postedAt: isoTs(p.postedAt)
   };
@@ -263,14 +411,41 @@ function filterOne(p) {
 
   const all = sd.concat(hy);
 
+  // 时间戳（raw 与 hot 共用）
+  const stamp = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 16).replace(/[:T]/g, "-");
+
   // 原始数据留档（只增不删）
   if (all.length) {
-    const stamp = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 16).replace(/[:T]/g, "-");
     fs.writeFileSync(path.join(RAW_DIR, `raw-${stamp}.json`), JSON.stringify(all, null, 1), "utf8");
   }
 
-  // 筛选 + 并入结果
-  const hits = all.map(filterOne).filter(Boolean);
+  // 热榜留档（单独目录、全字段、不去重）
+  const hot = await fetchHot();
+  if (Object.keys(hot).length) {
+    fs.writeFileSync(path.join(HOT_DIR, `hot-${stamp}.json`), JSON.stringify(hot, null, 1), "utf8");
+    await downloadHotImages(hot);
+  }
+
+  // 黑名单：站内已被申请删除的帖子，不再入库（删除只从展示层移除，留档仍在 raw/hot）
+  const blocked = new Set();
+  if (process.env.MONGO_URI) {
+    try {
+      const mongoose = require("mongoose");
+      const bs = new mongoose.Schema({ source: String, sourceId: String }, { strict: false });
+      const B = mongoose.models.DeletedExternal || mongoose.model("DeletedExternal", bs);
+      await mongoose.connect(process.env.MONGO_URI);
+      const rows = await B.find({}).select("source sourceId").lean();
+      rows.forEach((x) => blocked.add(`${x.source}:${x.sourceId}`));
+      if (blocked.size) log(`黑名单 ${blocked.size} 条`);
+    } catch (e) { log(`黑名单读取失败: ${e.message}`); }
+  }
+
+  // 筛选 + 并入结果（串行调用 Jev 精判；TRIP_KW 不命中的在前几行就返回，不产生请求）
+  const hits = [];
+  for (const p of all) {
+    if (blocked.has(`${p.source}:${p.sourceId}`)) continue;
+    const h = await filterOne(p); if (h) hits.push(h);
+  }
   let existing = [];
   try { existing = JSON.parse(fs.readFileSync(TRIPS_FILE, "utf8")); } catch (e) {}
   const seen = new Set(existing.map((x) => `${x.source}:${x.sourceId}`));

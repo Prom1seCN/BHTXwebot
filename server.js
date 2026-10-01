@@ -284,6 +284,31 @@ externalTripSchema.index({ date: 1, time: 1 });                          // 按�
 
 const ExternalTrip = mongoose.model("ExternalTrip", externalTripSchema);
 
+// ===== 同行雷达：删除留档（黑名单 + 操作记录，只增不改）=====
+// 发帖人本人或任何认证用户可申请删除。删除后原帖从 ExternalTrip 移除，
+// 但在此留档：sourceId 作为爬虫黑名单，raw 留档备查，operator 绑定认证邮箱（可追溯）。
+const deletedExternalSchema = new mongoose.Schema({
+  source:       { type: String, required: true },
+  sourceId:     { type: String, required: true },
+  from:         { type: String, default: "" },
+  to:           { type: String, default: "" },
+  date:         { type: String, default: "" },
+  time:         { type: String, default: "" },
+  raw:          { type: String, default: "" },
+  postedAt:     { type: Date, default: null },
+  reason:       { type: String, required: true },
+  reasonDetail: { type: String, default: "" },
+  operator:     { type: String, required: true },
+  deletedAt:    { type: Date, default: Date.now }
+}, { timestamps: true });
+
+deletedExternalSchema.index({ source: 1, sourceId: 1 }, { unique: true });
+deletedExternalSchema.index({ operator: 1, deletedAt: -1 });
+
+const DeletedExternal = mongoose.model("DeletedExternal", deletedExternalSchema);
+
+
+
 // ===== 验证码防护计数（按邮箱，不按 IP）=====
 // 为什么不用 IP：换 IP 对攻击者几乎零成本（本机实测——换一个 X-Forwarded-For 值就拿到一个
 // 全新的限流桶），而校园网/CGNAT 出口又让一栋楼共享同一个 IP，按 IP 既挡不住人又误伤同学。
@@ -1185,13 +1210,20 @@ app.get("/api/external-trips", async (req, res) => {
     const today = now.toISOString().slice(0, 10);
     const hhmm = now.toISOString().slice(11, 16);
 
-    const list = await ExternalTrip.find({
+    // 黑名单：已申请删除的帖子（sourceId 不下发，故在数据库层用 $nor 排除）
+    const blocked = await DeletedExternal.find({}).select("source sourceId").lean();
+    const query = {
       $or: [
         { date: { $gt: today } },                                    // 今天之后
         { date: today, time: "" },                                   // 今天、未写时刻
         { date: today, time: { $gte: hhmm } }                        // 今天、时刻未到
       ]
-    })
+    };
+    if (blocked.length) {
+      query.$nor = blocked.map((x) => ({ source: x.source, sourceId: x.sourceId }));
+    }
+
+    const list = await ExternalTrip.find(query)
       .select("source from to date time raw postedAt")
       .sort({ date: 1, time: 1 })
       .limit(limit);
@@ -1199,6 +1231,66 @@ app.get("/api/external-trips", async (req, res) => {
     res.json(list);
   } catch (err) {
     console.error("同行雷达查询失败:", err);
+    res.status(500).json({ message: "服务器内部错误" });
+  }
+});
+
+// ===== 同行雷达：删除（仅限本模块的第三方帖子）=====
+// 门槛：登录 + 北化邮箱认证 + 勾选「本人发布」+ 选择原因；同一账号 24 小时限 1 条。
+// 动作留档到 DeletedExternal（含原帖内容），同时充当爬虫黑名单。
+const EXT_DELETE_REASONS = [
+  "我是发帖人，不想被转载",
+  "信息有误",
+  "已经拼到人了",
+  "其他"
+];
+
+app.post("/api/external-trips/:id/delete", verifyToken, requireVerified, async (req, res) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: "无效的帖子 ID" });
+    }
+
+    const { reason, reasonDetail, confirm } = req.body || {};
+    if (confirm !== true) {
+      return res.status(400).json({ message: "请勾选「这是我本人发布的帖子」" });
+    }
+    if (!reason || !EXT_DELETE_REASONS.includes(reason)) {
+      return res.status(400).json({ message: "请选择删除原因" });
+    }
+
+    // 限流：同一账号 24 小时内最多删 1 条
+    const since = new Date(Date.now() - 24 * 3600 * 1000);
+    const recent = await DeletedExternal.countDocuments({
+      operator: req.user.openid, deletedAt: { $gte: since }
+    });
+    if (recent >= 1) {
+      return res.status(429).json({ message: "每个账号 24 小时内只能删除一条，请明天再试" });
+    }
+
+    const doc = await ExternalTrip.findById(req.params.id);
+    if (!doc) {
+      return res.status(404).json({ message: "该信息已不存在" });
+    }
+
+    await DeletedExternal.create({
+      source: doc.source, sourceId: doc.sourceId,
+      from: doc.from, to: doc.to, date: doc.date, time: doc.time,
+      raw: doc.raw,
+      postedAt: doc.postedAt || null,
+      reason,
+      reasonDetail: String(reasonDetail || "").slice(0, 500),
+      operator: req.user.openid
+    });
+    await ExternalTrip.deleteOne({ _id: doc._id });
+
+    console.log(`同行雷达删除: ${doc.source}/${doc.sourceId} by ${req.user.openid} (${reason})`);
+    res.json({ ok: true, message: "已删除" });
+  } catch (err) {
+    if (err && err.code === 11000) {
+      return res.json({ ok: true, message: "已删除" });   // 重复提交，视为成功
+    }
+    console.error("同行雷达删除失败:", err);
     res.status(500).json({ message: "服务器内部错误" });
   }
 });
@@ -2255,6 +2347,46 @@ app.delete("/api/contributors/apply/:code", async (req, res) => {
   }
 });
 
+// ===== 同行雷达：删除记录管理（ADMIN_KEY 鉴权）=====
+// 列表：按删除时间倒序，含被删帖子的完整内容
+app.get("/api/manage/deleted-external", manageGuard, async (req, res) => {
+  try {
+    const list = await DeletedExternal.find().sort({ deletedAt: -1 }).limit(500).lean();
+    res.json(list);
+  } catch (err) {
+    console.error("删除记录查询失败:", err);
+    res.status(500).json({ message: "服务器内部错误" });
+  }
+});
+
+// 恢复：写回帖子 + 移出黑名单（两步必须同时做，否则列表仍不显示）
+app.post("/api/manage/deleted-external/:id/restore", manageGuard, async (req, res) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: "无效的记录 ID" });
+    }
+    const rec = await DeletedExternal.findById(req.params.id);
+    if (!rec) return res.status(404).json({ message: "记录不存在" });
+
+    await ExternalTrip.updateOne(
+      { source: rec.source, sourceId: rec.sourceId },
+      { $setOnInsert: {
+          source: rec.source, sourceId: rec.sourceId,
+          from: rec.from, to: rec.to, date: rec.date, time: rec.time,
+          raw: rec.raw, postedAt: rec.postedAt || new Date()
+      } },
+      { upsert: true }
+    );
+    await DeletedExternal.deleteOne({ _id: rec._id });
+
+    console.log(`同行雷达恢复: ${rec.source}/${rec.sourceId}`);
+    res.json({ ok: true, message: "已恢复" });
+  } catch (err) {
+    console.error("删除记录恢复失败:", err);
+    res.status(500).json({ message: "服务器内部错误" });
+  }
+});
+
 // 管理接口（dashboard，ADMIN_KEY 鉴权；返回全量含隐藏）
 app.get("/api/manage/contributors", manageGuard, async (req, res) => {
   try {
@@ -2533,8 +2665,9 @@ app.delete("/api/manage/qq/channels/groups/:id", manageGuard, async (req, res) =
   }
 });
 
-app.listen(PORT, "127.0.0.1", () => {
-  console.log(`Server running at http://localhost:${PORT}`);
+const BIND_HOST = process.env.BIND_HOST || "127.0.0.1";   // 生产由 nginx 反代，保持本机；预览环境可用 BIND_HOST=0.0.0.0
+app.listen(PORT, BIND_HOST, () => {
+  console.log(`Server running at http://${BIND_HOST}:${PORT}`);
 });
 
 // 数据看板短链接（静态页在 /dashboard.html）
