@@ -729,8 +729,9 @@ const app = Vue.createApp({
       }
     },
 
+    // 并入 api() 后自带 30s 超时与错误兜底；QQ 频道是纯展示数据，失败静默（页面有独立空态文案）
     loadQQData() {
-      fetch('/api/qq').then((r) => r.json()).then((d) => {
+      this.api('/qq').then((d) => {
         this.qqData = d || null;
         this.qqTs = Date.now();
       }).catch(() => {});
@@ -948,8 +949,7 @@ const app = Vue.createApp({
       if (this.showContributors && !this.contributors.length) {
         this.contributorsLoading = true;
         try {
-          const res = await fetch('/api/contributors');
-          const list = await res.json();
+          const list = await this.api('/contributors');
           this.contributors = Array.isArray(list) ? list : [];
         } catch (e) {
           this.contributors = [];
@@ -963,8 +963,7 @@ const app = Vue.createApp({
     async checkApply() {
       if (!this.applyCode) { this.applyState = null; return; }
       try {
-        const res = await fetch('/api/contributors/apply/' + this.applyCode);
-        const d = await res.json();
+        const d = await this.api('/contributors/apply/' + this.applyCode);
         if (!d.found) {
           this.applyCode = '';
           localStorage.removeItem(LS.contribApply);
@@ -980,20 +979,18 @@ const app = Vue.createApp({
       if (!this.applyName) { this.applyError = '请填写希望展示的 ID'; return; }
       this.applying = true;
       try {
-        const res = await fetch('/api/contributors/apply', {
+        // api() 在非 2xx 时抛出带服务端 message 的 Error：429 能显示「提交过于频繁，请明天再试」而非笼统的「提交失败」
+        const data = await this.api('/contributors/apply', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: this.applyName, role: this.applyRole, ref4: this.applyRef })
+          body: { name: this.applyName, role: this.applyRole, ref4: this.applyRef }
         });
-        const data = await res.json().catch(() => ({}));
-        if (res.status !== 200) { this.applyError = data.message || '提交失败，请稍后再试'; return; }
         this.applyCode = String(data.code || '');
         localStorage.setItem(LS.contribApply, this.applyCode);
         this.applyFormOpen = false;
         this.applyName = this.applyRole = this.applyRef = '';
         await this.checkApply();
       } catch (e) {
-        this.applyError = '提交失败，请稍后再试';
+        this.applyError = e.message || '提交失败，请稍后再试';
       } finally {
         this.applying = false;
       }
@@ -1002,14 +999,9 @@ const app = Vue.createApp({
     async withdrawApply() {
       if (!this.applyCode) return;
       try {
-        const res = await fetch('/api/contributors/apply/' + this.applyCode, { method: 'DELETE' });
-        if (res.status !== 200) {
-          const d = await res.json().catch(() => ({}));
-          this.applyError = d.message || '撤回失败，请稍后再试';
-          return;
-        }
+        await this.api('/contributors/apply/' + this.applyCode, { method: 'DELETE' });
       } catch (e) {
-        this.applyError = '撤回失败，请稍后再试';
+        this.applyError = e.message || '撤回失败，请稍后再试';
         return;
       }
       this.applyCode = '';

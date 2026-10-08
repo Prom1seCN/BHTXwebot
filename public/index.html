@@ -10,13 +10,18 @@
 <link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png">
 <link rel="apple-touch-icon" href="/icon-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="百花同行">
 <meta name="format-detection" content="telephone=no">
-<link rel="stylesheet" href="/style.css?v=3">
+<link rel="stylesheet" href="/style.css?v=4">
 </head>
 <body>
 <div id="app" v-cloak>
+
+  <!-- 全站唯一的 h1：站点名（视觉隐藏，品牌区已有 wordmark 图承载视觉）。
+       各页标题统一用 h2，层级才稳定；此前 QQ 页用 h1、其余用 h2、大厅只有 h3。 -->
+  <h1 class="sr-only">百花同行 · 北化校园拼车</h1>
 
   <!-- ===== 顶栏 ===== -->
   <header class="topbar">
@@ -48,9 +53,6 @@
     <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M6.5 9.5l5.5 5.5 5.5-5.5"/></symbol>
     <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5.4L8 12l7 6.6"/></symbol>
     <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.6l4.6 4.6L19 7.4"/></symbol>
-    <symbol id="i-logout" viewBox="0 0 24 24">      <path d="M14.8 4.6h2.6a1.8 1.8 0 0 1 1.8 1.8v11.2a1.8 1.8 0 0 1-1.8 1.8h-2.6"/>
-      <path d="M10.4 8.4L6.8 12l3.6 3.6M6.8 12H15"/>
-    </symbol>
     <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
     <symbol id="i-clock" viewBox="0 0 24 24">
       <circle cx="12" cy="12" r="8.4"/><path d="M12 7.4V12l3.2 2"/>
@@ -648,7 +650,7 @@
         <svg class="back-ico" viewBox="0 0 24 24"><use href="#i-back"/></svg>
       </button>
     </div>
-    <h1 class="page-title">QQ机器人 &amp; QQ群</h1>
+    <h2 class="page-title">QQ机器人 &amp; QQ群</h2>
     <p class="qq-page-hint">扫码或复制号码，在 QQ 里搜索添加。添加机器人后，私聊就能发布、查询、拼车；进群 @机器人 同样可用。</p>
 
     <section class="panel qq-card" v-if="qqData && qqData.bot && (qqData.bot.number || qqData.bot.link || qqData.bot.qr)">
@@ -954,6 +956,6 @@
 </div>
 <script src="/vendor/vue.global.prod.js"></script>
 <script src="/vendor/qr-creator.min.js"></script>
-<script src="/app.js?v=5"></script>
+<script src="/app.js?v=6"></script>
 </body>
 </html>

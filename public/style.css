@@ -57,6 +57,15 @@
 [v-cloak] { display: none !important; }
 .sprite { display: none; }
 
+/* 仅供读屏/SEO 的视觉隐藏（全站 h1 站点名用它）：不用 display:none，
+   否则屏幕阅读器也读不到；1px + clip 是兼容性最稳的做法 */
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0;
+  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 html { -webkit-text-size-adjust: 100%; height: 100%; }
 
 body {
