@@ -2,8 +2,9 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0080FF">
+<meta name="description" content="百花同行——北化校园拼车信息撮合平台。北化教育邮箱认证，发布行程、同路同学互相加入，共同呼叫正规网约车。不派车、不抽成，永不收取拼车费用。">
 <title>百花同行 · 不再一个人出发</title>
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png">
@@ -203,7 +204,7 @@
         <article v-for="(t, i) in visibleExternal" :key="t._id" class="card card-ext"
                  :style="{'--i': i}" @click="openExtRaw(t)">
           <div class="card-head">
-            <span class="card-when">{{ t.displayDate || t.date }} {{ t.time }} 出发</span>
+            <span class="card-when">{{ t.displayDate || t.date }} {{ t.time || '时间未注明' }} 出发</span>
             <span class="ext-src">{{ t.source }}</span>
           </div>
           <div class="route">
@@ -323,15 +324,18 @@
         </ul>
       </section>
 
+      <!-- 发起人的「标记完成/取消」在 expired 下仍可用（行程已出发，需收尾）；
+           加入/退出只在 active|full 下出现：协议写明「到达出发时间后自动失效，不再接受加入」，
+           后端 join 要求 status==='active'、leave 明确拒绝 expired，过期时点这两个按钮必然报错 -->
       <div class="actions">
-        <template v-if="trip.status === 'active' || trip.status === 'full' || trip.status === 'expired'">
-          <template v-if="trip.isOrganizer">
-            <button class="btn-primary" :disabled="statusBusy" @click="completeTrip">标记完成</button>
-            <button class="btn-danger" :disabled="statusBusy" @click="cancelTrip">取消行程</button>
-          </template>
-          <button v-if="isMember && !trip.isOrganizer" class="btn-danger" @click="leaveTrip">退出行程</button>
-          <button v-else-if="!isMember && !trip.isFull" class="btn-primary" @click="joinTrip">加入行程</button>
-          <button v-else-if="!isMember && trip.isFull" class="btn-disabled" disabled>已满员</button>
+        <template v-if="trip.isOrganizer && (trip.status === 'active' || trip.status === 'full' || trip.status === 'expired')">
+          <button class="btn-primary" :disabled="statusBusy" @click="completeTrip">标记完成</button>
+          <button class="btn-danger" :disabled="statusBusy" @click="cancelTrip">取消行程</button>
+        </template>
+        <template v-else-if="trip.status === 'active' || trip.status === 'full'">
+          <button v-if="isMember" class="btn-danger" @click="leaveTrip">退出行程</button>
+          <button v-else-if="!trip.isFull" class="btn-primary" @click="joinTrip">加入行程</button>
+          <button v-else class="btn-disabled" disabled>已满员</button>
         </template>
       </div>
     </template>
@@ -950,6 +954,6 @@
 </div>
 <script src="/vendor/vue.global.prod.js"></script>
 <script src="/vendor/qr-creator.min.js"></script>
-<script src="/app.js?v=4"></script>
+<script src="/app.js?v=5"></script>
 </body>
 </html>

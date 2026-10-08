@@ -268,11 +268,13 @@ const app = Vue.createApp({
     },
 
     // QQ 频道弹层：bot/群任一有号或码才展示条目，全空时给占位文案
+    // 判断口径必须与模板渲染一致（number || link || qr）：link 是前端画二维码的首选字段，
+    // 只配 link 时卡片会正常渲染，这里漏判就会同时出现卡片和「频道尚未公布」
     qqGroupsShown() {
       const d = this.qqData;
       if (!d) return false;
-      const botHas = !!(d.bot && (d.bot.number || d.bot.qr));
-      const groupsHas = (d.groups || []).some((g) => g.number || g.qr);
+      const botHas = !!(d.bot && (d.bot.number || d.bot.link || d.bot.qr));
+      const groupsHas = (d.groups || []).some((g) => g.number || g.link || g.qr);
       return botHas || groupsHas;
     }
   },
@@ -463,8 +465,7 @@ const app = Vue.createApp({
         this.extDeleteOpen = false;
         this.extSheet = null;
         this.showToast('已删除');
-        this.go('hall');
-        await this.reloadHall();
+        this.go('hall');              // go('hall') 内部已调用 reloadHall()
       } catch (e) {
         // 失败时保留弹窗，让用户看清原因（限流 / 校验 / 网络）
         this.showToast((e && e.message) || '删除失败，请稍后重试');
@@ -825,7 +826,8 @@ const app = Vue.createApp({
       localStorage.removeItem(LS.email);
       localStorage.removeItem(LS.name);
       localStorage.removeItem(LS.contact);   // 共享电脑防外泄：不清的话下一个人的发布表单会预填上一位的联系方式
-      if (this.view === 'trips') this.view = 'hall';
+      // 需登录态的页面一律落回大厅：trips / publish（detail 游客可见，保留在原地）
+      if (this.view === 'trips' || this.view === 'publish') this.view = 'hall';
       if (!silent) this.showToast('已退出登录');
     },
 
@@ -934,7 +936,7 @@ const app = Vue.createApp({
       }
     },
 
-    openExternal(url) { window.open(url, '_blank'); },
+    openExternal(url) { window.open(url, '_blank', 'noopener'); },
 
     openSponsor() {
       this.sponsorTs = Date.now();
@@ -1031,7 +1033,12 @@ const app = Vue.createApp({
     document.addEventListener('wheel', (e) => {
       const el = e.target instanceof Element ? e.target.closest('.chips-track') : null;
       if (!el || el.scrollWidth <= el.clientWidth) return;
-      el.scrollLeft += (e.deltaY || e.deltaX);
+      const delta = e.deltaY || e.deltaX;
+      // 已滚到头/尾且还在往同方向滚：放行页面滚动，避免鼠标停在筛选行上时整页滚不动
+      const atStart = el.scrollLeft <= 0 && delta < 0;
+      const atEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - 1 && delta > 0;
+      if (atStart || atEnd) return;
+      el.scrollLeft += delta;
       e.preventDefault();
     }, { passive: false });
 
