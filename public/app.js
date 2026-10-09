@@ -46,6 +46,18 @@ const app = Vue.createApp({
 
       // ---- 视图 ----
       view: 'hall',
+      // 详情页来路：从「我的行程」点进详情，返回应回列表而不是大厅
+      detailFrom: 'hall',
+
+      // ---- 通用确认弹层（替代 window.confirm）----
+      // 原生 confirm 在微信/QQ 内置 webview 里样式不可控，又与全站的底部 sheet 风格完全割裂
+      confirmSheet: { open: false, title: '', text: '', confirmText: '确认', danger: false },
+      _confirmResolve: null,
+
+      // ---- 加入行程 · 填写联系方式（替代 window.prompt）----
+      joinContactOpen: false,
+      joinContactValue: '',
+      joinContactError: '',
 
       // ---- 大厅 ----
       trips: [],
@@ -391,11 +403,48 @@ const app = Vue.createApp({
       this.go('publish');   // 未登录时由 go() 的守卫引导到邮箱认证
     },
 
+    // 返回按钮：回到进来时的来源。原先固定 go('hall')，从「我的行程」点进详情再返回会掉到大厅
+    goBack() {
+      this.go(this.view === 'detail' && this.detailFrom === 'trips' ? 'trips' : 'hall');
+    },
+
+    // 通用确认弹层：await this.askConfirm({...}) 得到 true / false
+    // 为什么不用 window.confirm：原生弹窗与全站底部 sheet 割裂，webview 里样式且不受控
+    askConfirm(opts) {
+      this.confirmSheet = Object.assign(
+        { open: true, title: '确认操作', text: '', confirmText: '确认', danger: false },
+        opts || {}
+      );
+      return new Promise((resolve) => { this._confirmResolve = resolve; });
+    },
+    closeConfirm(result) {
+      if (!this.confirmSheet.open) return;
+      this.confirmSheet.open = false;
+      const resolve = this._confirmResolve;
+      this._confirmResolve = null;
+      // 只结算一次：遮罩点击与按钮点击可能同时到达
+      if (resolve) resolve(!!result);
+    },
+
     handleHash() {
       const h = location.hash.replace(/^#\/?/, '');
       if (h.indexOf('trip/') === 0) {
         const id = h.slice(5);
         if (this.view !== 'detail' || this.tripId !== id) this.openTrip(id, true);
+        return;
+      }
+      // 同行雷达原帖详情：写入历史栈后浏览器返回键不再直接退出网站
+      if (h.indexOf('ext/') === 0) {
+        const id = h.slice(4);
+        const hit = (this.externalTrips || []).find((x) => x._id === id);
+        if (hit) { this.openExtRaw(hit, true); return; }
+        // 刷新或直接打开分享链接时列表还没到：先拉一次大厅数据再定位，
+        // 拿不到这条就回大厅 —— 不能把人停在空详情页上
+        this.reloadHall().then(() => {
+          const t = (this.externalTrips || []).find((x) => x._id === id);
+          if (t) this.openExtRaw(t, true);
+          else this.go('hall');
+        });
         return;
       }
       const v = ['publish', 'menu', 'trips', 'about', 'qq', 'guide', 'legal'].indexOf(h) > -1 ? h : 'hall';
@@ -423,12 +472,13 @@ const app = Vue.createApp({
 
     // 同行雷达：查看原帖（需登录 —— 仅信息查询工具，认证后才展开详情）
     // 注意：不要叫 openExternal，那个名字已被「打开外链」占用（见文件后段）
-    openExtRaw(t) {
+    openExtRaw(t, fromHash) {
       if (!this.isLoggedIn) {
         this.showToast('查看原帖需先完成邮箱认证');
         setTimeout(() => { if (!this.isLoggedIn) this.openLogin(); }, 600);
         return;
       }
+      if (!fromHash) location.hash = '#/ext/' + t._id;   // 进历史栈：返回键留在站内，链接可直接分享
       this.extSheet = t;
       this.view = 'extdetail';
       window.scrollTo(0, 0);
@@ -490,6 +540,8 @@ const app = Vue.createApp({
     // ================= 详情 =================
     async openTrip(id, fromHash) {
       if (!fromHash) location.hash = '#/trip/' + id;
+      // 记住来路：从「我的行程」进来就回列表，其余入口回大厅
+      this.detailFrom = this.view === 'trips' ? 'trips' : 'hall';
       this.view = 'detail';
       this.tripId = id;
       this.trip = null;
@@ -524,14 +576,30 @@ const app = Vue.createApp({
       }
     },
 
+    // 取联系方式：本机有存档直接用；没有就弹底部弹层收集（替代 window.prompt）
+    // prompt 在微信/QQ 内置浏览器里样式不可控，还会把「加入行程」打断成一个突兀的系统框
     ensureContact(cb) {
-      let c = localStorage.getItem(LS.contact) || '';
+      const c = localStorage.getItem(LS.contact) || '';
       if (c) { cb(c); return; }
-      c = window.prompt('请输入联系方式（微信号或手机号）');
-      if (!c || !c.trim()) return;
-      c = c.trim();
+      this.joinContactValue = '';
+      this.joinContactError = '';
+      this.joinContactOpen = true;
+      this._joinContactCb = cb;    // 弹层提交后回调，加入流程本身不变
+    },
+
+    submitJoinContact() {
+      const c = (this.joinContactValue || '').trim();
+      if (!c) { this.joinContactError = '请输入联系方式（微信号或手机号）'; return; }
       localStorage.setItem(LS.contact, c);
-      cb(c);
+      this.joinContactOpen = false;
+      const cb = this._joinContactCb;
+      this._joinContactCb = null;
+      if (cb) cb(c);
+    },
+
+    closeJoinContact() {
+      this.joinContactOpen = false;
+      this._joinContactCb = null;
     },
 
     joinTrip() {
@@ -550,7 +618,13 @@ const app = Vue.createApp({
     },
 
     async leaveTrip() {
-      if (!window.confirm('确定退出该行程吗？')) return;
+      const ok = await this.askConfirm({
+        title: '退出行程',
+        text: '确定退出该行程吗？',
+        confirmText: '退出',
+        danger: true          // 退出/取消这类不可逆操作给危险色，和「取消行程」保持同一套语义
+      });
+      if (!ok) return;
       try {
         await this.api('/trips/' + this.tripId + '/leave', { method: 'POST' });
         this.showToast('已退出');
@@ -563,7 +637,12 @@ const app = Vue.createApp({
     },
 
     async completeTrip() {
-      if (!window.confirm('确认标记该行程为已完成？')) return;
+      const ok = await this.askConfirm({
+        title: '标记完成',
+        text: '确认标记该行程为已完成？',
+        confirmText: '标记完成'
+      });
+      if (!ok) return;
       this.statusBusy = true;
       try {
         await this.api('/trips/' + this.tripId + '/status', { method: 'PUT', body: { action: 'complete' } });
@@ -578,7 +657,13 @@ const app = Vue.createApp({
     },
 
     async cancelTrip() {
-      if (!window.confirm('确认取消该行程？')) return;
+      const ok = await this.askConfirm({
+        title: '取消行程',
+        text: '确认取消该行程？',
+        confirmText: '取消行程',
+        danger: true
+      });
+      if (!ok) return;
       this.statusBusy = true;
       try {
         await this.api('/trips/' + this.tripId + '/status', { method: 'PUT', body: { action: 'cancel' } });
@@ -833,7 +918,13 @@ const app = Vue.createApp({
     },
 
     async unbindQQ() {
-      if (!window.confirm('确认解除 QQ 绑定？解除后需重新绑定才能使用机器人。')) return;
+      const ok = await this.askConfirm({
+        title: '解除 QQ 绑定',
+        text: '解除后需重新绑定才能使用机器人。',
+        confirmText: '解除绑定',
+        danger: true
+      });
+      if (!ok) return;
       try {
         await this.api('/user/qq-unbind', { method: 'POST' });
         this.qqBound = false;
@@ -1047,6 +1138,10 @@ const app = Vue.createApp({
 
     if (h.indexOf('trip/') === 0) {
       this.openTrip(h.slice(5), true);
+    } else if (h.indexOf('ext/') === 0) {
+      // 雷达原帖详情：先立起详情骨架（模板自带「加载中」），列表数据到位后再填内容
+      this.view = 'extdetail';
+      this.handleHash();
     } else if (['publish', 'menu', 'trips', 'about', 'qq', 'guide', 'legal'].indexOf(h) > -1) {
       // 走 go()，使「行程历史」的认证判断同样生效
       this.go(h, true);

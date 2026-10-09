@@ -150,7 +150,7 @@ input, select { font-family: inherit; font-size: inherit; }
    ========================================================================== */
 .btn-primary {
   border: none; background: var(--brand); color: #fff;
-  padding: 12px 20px; border-radius: var(--r-sm); font-weight: 500;
+  padding: 12px 20px; border-radius: var(--r-sm); font-weight: 600;
   box-shadow: var(--shadow-brand);
   transition: background var(--t-fast), box-shadow var(--t-fast), transform .14s var(--ease);
 }
@@ -190,12 +190,12 @@ input, select { font-family: inherit; font-size: inherit; }
    页面容器
    ========================================================================== */
 .page {
-  padding: 14px 14px 24px;
+  padding: 16px 16px 28px;
   max-width: 640px; margin: 0 auto;
   animation: rise var(--t) var(--ease) backwards;
 }
 .page-head .page-title { margin: 0; }
-.page-title { margin: 4px 0 6px; font-size: 21px; font-weight: 600; color: var(--ink); letter-spacing: -.2px; }
+.page-title { margin: 4px 0 6px; font-size: 22px; font-weight: 600; color: var(--ink); letter-spacing: -.2px; }
 .page-hint { margin: 0 0 14px; color: var(--muted); font-size: 13px; }
 
 .state { padding: 40px 0; text-align: center; color: var(--faint); font-size: 14px; }
@@ -256,7 +256,7 @@ input, select { font-family: inherit; font-size: inherit; }
 /* ==========================================================================
    行程卡片（路线轨道）
    ========================================================================== */
-.list { display: flex; flex-direction: column; gap: 12px; }
+.list { display: flex; flex-direction: column; gap: 14px; }
 
 .card {
   position: relative;
@@ -765,6 +765,28 @@ input, select { font-family: inherit; font-size: inherit; }
 .sheet-hint { margin: 0 0 16px; font-size: 13px; color: var(--muted); }
 
 /* ==========================================================================
+   通用确认弹层（替代浏览器原生 confirm）
+   ========================================================================== */
+.confirm-actions { display: flex; gap: 10px; margin-top: 18px; }
+.confirm-cancel {
+  flex: none; padding: 0 20px; cursor: pointer;
+  border: 1px solid var(--line); border-radius: var(--r-sm); background: #fff;
+  color: var(--muted); font-size: 14.5px;
+  transition: background var(--t-fast);
+}
+.confirm-cancel:active { background: var(--bg); }
+.confirm-ok {
+  flex: 1; padding: 13px 0; cursor: pointer;
+  border: none; border-radius: var(--r-sm); background: var(--brand);
+  color: #fff; font-size: 15px; font-weight: 600;
+  box-shadow: var(--shadow-brand);
+  transition: background .15s, transform .1s;
+}
+.confirm-ok:active { background: var(--brand-600); transform: scale(.985); }
+.confirm-ok.danger { background: var(--danger); box-shadow: 0 2px 10px rgba(217, 45, 32, .25); }
+.confirm-ok.danger:active { background: #B42318; }
+
+/* ==========================================================================
    Toast
    ========================================================================== */
 .toast {
@@ -854,7 +876,7 @@ button, .card, .chip, .link-row, .tab, .uid, .menu-cell { user-select: none; -we
 
 
   .page { max-width: none; margin: 0; padding: 34px 0 72px; }
-  .page-title { font-size: 23px; }
+  .page-title { font-size: 24px; }
   .filterbar { margin-bottom: 20px; }
 
   /* 弹层在桌面端居中，而不是贴底 */
@@ -872,6 +894,14 @@ button, .card, .chip, .link-row, .tab, .uid, .menu-cell { user-select: none; -we
 @keyframes dialogIn {
   from { opacity: 0; transform: translateY(8px) scale(.98); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ==========================================================================
+   宽屏（≥1200px）：卡片双列网格（大厅「预约同行 / 同行雷达」与「我的行程」共用 .list）
+   单列在 860px 内容宽度下每屏只能看到 3~4 张卡，宽屏的一半空间被浪费
+   ========================================================================== */
+@media (min-width: 1200px) {
+  .list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; }
 }
 
 /* ==========================================================================
@@ -972,7 +1002,7 @@ button, .card, .chip, .link-row, .tab, .uid, .menu-cell { user-select: none; -we
   display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
   margin-bottom: 12px; padding: 0 2px;
 }
-.hall-title { font-size: 15px; font-weight: 600; color: var(--ink); margin: 0; }
+.hall-title { font-size: 16px; font-weight: 600; color: var(--ink); margin: 0; }
 .hall-note { font-size: 12px; color: var(--faint); }
 
 .radar { margin-top: 30px; }

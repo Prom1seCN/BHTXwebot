@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="百花同行">
 <meta name="format-detection" content="telephone=no">
-<link rel="stylesheet" href="/style.css?v=4">
+<link rel="stylesheet" href="/style.css?v=5">
 </head>
 <body>
 <div id="app" v-cloak>
@@ -266,7 +266,7 @@
   <!-- ===== 行程详情 ===== -->
   <main v-if="view==='detail'" class="page">
     <div class="page-head">
-      <button class="back" aria-label="返回" @click="go('hall')">
+      <button class="back" aria-label="返回" @click="goBack()">
         <svg class="back-ico" viewBox="0 0 24 24"><use href="#i-back"/></svg>
       </button>
     </div>
@@ -950,12 +950,43 @@
     </div>
   </div>
 
+  <!-- ===== 通用确认弹层（替代 window.confirm）===== -->
+  <!-- 原生 confirm 在微信/QQ 内置 webview 里样式不可控，且与全站底部 sheet 割裂，
+       故统一为应用内弹层：危险操作（退出/取消/解绑）走红色实心按钮，其余走品牌蓝 -->
+  <div v-if="confirmSheet.open" class="mask" @click.self="closeConfirm(false)">
+    <div class="sheet">
+      <h3 class="sheet-title">{{ confirmSheet.title }}</h3>
+      <p v-if="confirmSheet.text" class="sheet-hint">{{ confirmSheet.text }}</p>
+      <div class="confirm-actions">
+        <button class="confirm-cancel" @click="closeConfirm(false)">再想想</button>
+        <button class="confirm-ok" :class="{ danger: confirmSheet.danger }" @click="closeConfirm(true)">
+          {{ confirmSheet.confirmText }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 加入行程 · 填写联系方式（替代 window.prompt）===== -->
+  <div v-if="joinContactOpen" class="mask" @click.self="closeJoinContact">
+    <div class="sheet">
+      <h3 class="sheet-title">填写联系方式</h3>
+      <p class="sheet-hint">仅同车成员可见，用于出发前互相联系</p>
+      <div class="field-row">
+        <input class="input-grow" v-model.trim="joinContactValue" maxlength="50"
+               placeholder="微信号或手机号" @keyup.enter="submitJoinContact">
+      </div>
+      <p v-if="joinContactError" class="err">{{ joinContactError }}</p>
+      <button class="btn-primary block" @click="submitJoinContact">加入行程</button>
+      <button class="btn-text" @click="closeJoinContact">取消</button>
+    </div>
+  </div>
+
   <!-- ===== Toast ===== -->
   <div v-if="toast" class="toast">{{ toast }}</div>
 
 </div>
 <script src="/vendor/vue.global.prod.js"></script>
 <script src="/vendor/qr-creator.min.js"></script>
-<script src="/app.js?v=6"></script>
+<script src="/app.js?v=7"></script>
 </body>
 </html>
